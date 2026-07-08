@@ -411,17 +411,60 @@ sub _run_genesis_step {
 
 sub _env_has_proto_feature {
 	my ($env, $workdir) = @_;
-	# TBD: parse deployments/<env>.yml, look at kit.features for 'proto'.
-	# Deferred to BOSH-pilot integration work.
-	return 0;
+	# The env yml has already been copied into $workdir/deployments/
+	# by _copy_env_fixture (step 6); read it back to decide whether
+	# to preserve create-env-shaped top-level keys during Prune.
+	require Genesis;
+	my $path = "$workdir/deployments/".$env->name.".yml";
+	return 0 unless -f $path;
+	my $spec = eval { Genesis::load_yaml_file($path) };
+	return 0 unless ref($spec) eq 'HASH';
+	my $features = $spec->{kit}{features} // [];
+	return 0 unless ref($features) eq 'ARRAY';
+	return (grep { defined && $_ eq 'proto' } @$features) ? 1 : 0;
 }
 
 sub _bootstrap_credhub_stub_if_missing {
 	my ($fx, $env, $manifest, $workdir) = @_;
 	return if $fx->exists('credhub', $env->name);
-	# TBD: only fires when manifest has variables:. Run bosh int
-	# --vars-store, then tokenize with Bootstrap::tokenize_credhub_vars.
-	# Deferred to BOSH-pilot integration work.
+
+	# Only fires when the manifest actually declares credhub-style
+	# variables.  Skip cleanly when the block is empty or absent so
+	# we don't leave dead git noise around for envs that don't use
+	# credhub at all.
+	my $vars = $manifest->{variables};
+	return unless ref($vars) eq 'ARRAY' && @$vars;
+
+	# Write the *pruned* manifest to a scratch file.  Matching testkit:
+	# any variable that references a pruned top-level (meta, params,
+	# pipeline, ...) legitimately fails here, which is the framework
+	# surfacing "this env is coupling to something a real deploy
+	# wouldn't have" -- a bug worth catching.
+	require Genesis;
+	my $mpath = "$workdir/kv-credhub-manifest.yml";
+	open my $fh, '>', $mpath or die "cannot write $mpath: $!";
+	print $fh Genesis::to_yaml($manifest);
+	close $fh;
+
+	# Ask bosh to generate values into a fresh vars-store.  This is
+	# purely client-side: bosh walks the variables: block and
+	# synthesizes certs/passwords locally.  No director contact.
+	my $store_path = "$workdir/kv-credhub-store.yml";
+	_run_cmd(
+		['bosh', 'int', $mpath, '--vars-store', $store_path],
+		stderr => 0,
+		onfailure => "bosh int --vars-store failed while bootstrapping "
+			.$env->name."'s credhub stub",
+	);
+
+	# Read the generated store and tokenize each variable.  Scalars
+	# become <!{credhub}:<var>!>; hash-shaped variables (typical for
+	# certificates: {ca, certificate, private_key}) expand to
+	# <!{credhub}:<var>.<subkey>!> per subkey.  Bootstrap has this.
+	my $store = Genesis::load_yaml_file($store_path) || {};
+	return unless ref($store) eq 'HASH' && keys %$store;
+	my $tokenized = Kit::Validator::Bootstrap::tokenize_credhub_vars($store);
+	$fx->write('credhub', $env->name, Genesis::to_yaml($tokenized));
 }
 
 sub _interpolate {

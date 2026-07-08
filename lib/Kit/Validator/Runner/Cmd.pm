@@ -1,0 +1,134 @@
+package Kit::Validator::Runner::Cmd;
+use v5.20;
+use warnings;
+
+# Pure command builders.  Each sub returns an arrayref suitable for
+# passing to Genesis::run or system() -- no shell interpolation, no
+# side effects.  Parity anchor: testkit/testing/{genesis,bosh}.go.
+
+sub _cloud_runtime_flags {
+	my ($env, $fixture_dir) = @_;
+	my @flags;
+	if (defined(my $cc = $env->cloud_config)) {
+		push @flags, '-c', "cloud=$fixture_dir/cloud_configs/$cc.yml";
+	}
+	if (defined(my $rc = $env->runtime_config)) {
+		push @flags, '-c', "runtime=$fixture_dir/runtime_configs/$rc.yml";
+	}
+	return @flags;
+}
+
+sub genesis_init_cmd {
+	my (%o) = @_;
+	return [
+		'genesis', 'init',
+		'--link-dev-kit', $o{kit_dir},
+		'--vault',        $o{vault},
+		'--cwd',          $o{workdir},
+		'--directory',    'deployments',
+		$o{kit_name},
+	];
+}
+
+sub genesis_check_cmd {
+	my (%o) = @_;
+	my $env = $o{env};
+	return [
+		'genesis', 'check',
+		'--cwd', 'deployments/',
+		'--no-manifest',
+		'--no-stemcells',
+		_cloud_runtime_flags($env, $o{fixture_dir}),
+		$env->name,
+	];
+}
+
+sub genesis_manifest_cmd {
+	my (%o) = @_;
+	my $env = $o{env};
+	return [
+		'genesis', 'deployments/'.$env->name, 'manifest',
+		'--type=unredacted',
+		_cloud_runtime_flags($env, $o{fixture_dir}),
+	];
+}
+
+sub genesis_check_secrets_cmd {
+	my (%o) = @_;
+	return [
+		'genesis', 'check-secrets',
+		'--no-color', '-lm', '-v',
+		'--cwd', 'deployments/',
+		$o{env}->name,
+		'type=provided',
+	];
+}
+
+sub genesis_add_secrets_cmd {
+	my (%o) = @_;
+	return [
+		'genesis', 'add-secrets',
+		'--cwd', 'deployments/',
+		$o{env}->name,
+	];
+}
+
+sub bosh_int_cmd {
+	my (%o) = @_;
+	my @cmd = (
+		'bosh', 'int',
+		$o{manifest_path},
+		'--var-errs',
+		'--var-errs-unused',
+		'--vars-file', $o{bosh_vars_path},
+	);
+	push @cmd, '--vars-file', $o{credhub_vars_path} if $o{credhub_vars_path};
+	push @cmd, '--vars-file', $o{credhub_stub_path} if $o{credhub_stub_path};
+	return \@cmd;
+}
+
+sub spruce_diff_cmd {
+	my (%o) = @_;
+	return ['spruce', 'diff', $o{golden_path}, $o{actual_path}];
+}
+
+sub testing_env {
+	my (%o) = @_;
+	my $env = $o{env};
+	return {
+		GENESIS_TESTING_BOSH_CPI                    => $env->cpi,
+		GENESIS_TESTING_CHECK_SECRETS_PRESENCE_ONLY => 'true',
+		GENESIS_TESTING                             => 'yes',
+		GENESIS_BOSH_VERIFIED                       => $env->name,
+	};
+}
+
+1;
+
+__END__
+
+=head1 NAME
+
+Kit::Validator::Runner::Cmd - Pure command builders for the runner
+
+=head1 SYNOPSIS
+
+  use Kit::Validator::Runner::Cmd;
+
+  my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+      env         => $env,
+      fixture_dir => '/kits/bosh/spec',
+  );
+  Genesis::run($cmd);   # or system(@$cmd)
+
+=head1 DESCRIPTION
+
+Each function returns an arrayref (or a plain hashref, for
+C<testing_env>) with no side effects.  The Runner uses these to
+build the argv/env-var lists for each subprocess call; tests can
+assert the arg list is right without ever invoking a real
+C<genesis> or C<bosh> binary.
+
+Parity target: C<testkit/testing/{genesis,bosh}.go>.
+
+=cut

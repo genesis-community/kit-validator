@@ -85,12 +85,18 @@ sub _execute {
 	_seed_git_identity($workdir);
 
 	# 5. genesis init in the workdir, linking against the kit under test.
-	Genesis::run(Kit::Validator::Runner::Cmd::genesis_init_cmd(
-		kit_name => $kit_name,
-		kit_dir  => $kit_dir,
-		workdir  => $workdir,
-		vault    => $vault->name,
-	), {onfailure => "genesis init failed for ".$env->name});
+	# Pass the vault's URL, not its alias: Service::Vault::Remote->find
+	# keys lookup on URL, and passing the alias name produces the opaque
+	# "Can't call method 'connect_and_validate' on undef" downstream.
+	_run_cmd(
+		Kit::Validator::Runner::Cmd::genesis_init_cmd(
+			kit_name => $kit_name,
+			kit_dir  => $kit_dir,
+			workdir  => $workdir,
+			vault    => $vault->url,
+		),
+		onfailure => "genesis init failed for ".$env->name,
+	);
 
 	# 6. Copy fixture files (env yml, ops yml files).
 	_copy_env_fixture($fx, $env, $workdir);
@@ -148,6 +154,18 @@ sub _execute {
 # BOSH-pilot phase.  Each has a defined signature and known behavior
 # from testkit; the implementation lands during pilot integration
 # testing against real fixtures.
+
+# _run_cmd - splat a Runner::Cmd argv into Genesis::run's calling
+# convention.  Genesis::run(prog, @args) auto-wraps the first arg
+# as a bash `-c` string and appends `"${@}"` to consume the rest,
+# giving us argv-style dispatch.  Extra opts (onfailure, stderr,
+# stdin, ...) go in the leading hashref.
+sub _run_cmd {
+	my ($argv, %opts) = @_;
+	die "_run_cmd: expected arrayref argv, got ".ref($argv)."\n"
+		unless ref $argv eq 'ARRAY' && @$argv;
+	return Genesis::run(\%opts, @$argv);
+}
 
 sub _detect_kit_name {
 	my ($kit_dir) = @_;

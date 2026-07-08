@@ -6,6 +6,13 @@ use warnings;
 # passing to Genesis::run or system() -- no shell interpolation, no
 # side effects.  Parity anchor: testkit/testing/{genesis,bosh}.go.
 
+# _genesis_bin - the argv[0] for every genesis-* subcommand.  Kit CI
+# uses `genesis` off PATH; local dev can point at an alternate binary
+# (e.g. a hand-packed g32) via KIT_VALIDATOR_GENESIS.
+sub _genesis_bin {
+	return $ENV{KIT_VALIDATOR_GENESIS} || 'genesis';
+}
+
 sub _cloud_runtime_flags {
 	my ($env, $fixture_dir) = @_;
 	my @flags;
@@ -21,7 +28,7 @@ sub _cloud_runtime_flags {
 sub genesis_init_cmd {
 	my (%o) = @_;
 	return [
-		'genesis', 'init',
+		_genesis_bin(), 'init',
 		'--link-dev-kit', $o{kit_dir},
 		'--vault',        $o{vault},
 		'--cwd',          $o{workdir},
@@ -34,7 +41,7 @@ sub genesis_check_cmd {
 	my (%o) = @_;
 	my $env = $o{env};
 	return [
-		'genesis', 'check',
+		_genesis_bin(), 'check',
 		'--cwd', 'deployments/',
 		'--no-manifest',
 		'--no-stemcells',
@@ -47,7 +54,7 @@ sub genesis_manifest_cmd {
 	my (%o) = @_;
 	my $env = $o{env};
 	return [
-		'genesis', 'deployments/'.$env->name, 'manifest',
+		_genesis_bin(), 'deployments/'.$env->name, 'manifest',
 		'--type=unredacted',
 		_cloud_runtime_flags($env, $o{fixture_dir}),
 	];
@@ -56,7 +63,7 @@ sub genesis_manifest_cmd {
 sub genesis_check_secrets_cmd {
 	my (%o) = @_;
 	return [
-		'genesis', 'check-secrets',
+		_genesis_bin(), 'check-secrets',
 		'--no-color', '-lm', '-v',
 		'--cwd', 'deployments/',
 		$o{env}->name,
@@ -67,7 +74,7 @@ sub genesis_check_secrets_cmd {
 sub genesis_add_secrets_cmd {
 	my (%o) = @_;
 	return [
-		'genesis', 'add-secrets',
+		_genesis_bin(), 'add-secrets',
 		'--cwd', 'deployments/',
 		$o{env}->name,
 	];

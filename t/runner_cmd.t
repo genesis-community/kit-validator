@@ -189,4 +189,17 @@ subtest 'testing_env: empty cpi still emits the key (blank)' => sub {
 		'blank cpi -> blank value (parity with testkit default)';
 };
 
+subtest 'KIT_VALIDATOR_GENESIS overrides argv[0] for every genesis-* cmd' => sub {
+	local $ENV{KIT_VALIDATOR_GENESIS} = 'g32';
+	my $env = env(cloud_config => 'aws');
+	is Kit::Validator::Runner::Cmd::genesis_init_cmd(
+		kit_name => 'x', kit_dir => 'k', workdir => 'w', vault => 'v')->[0], 'g32';
+	is Kit::Validator::Runner::Cmd::genesis_check_cmd(
+		env => $env, fixture_dir => '/x')->[0], 'g32';
+	is Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
+		env => $env, fixture_dir => '/x')->[0], 'g32';
+	is Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env)->[0], 'g32';
+	is Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env)->[0], 'g32';
+};
+
 done_testing;

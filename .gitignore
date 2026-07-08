@@ -17,3 +17,12 @@ nytprof.out
 *~
 .DS_Store
 t/fixtures/tiny-kit/spec/vault/
+
+# Perl build artefacts
+MANIFEST
+Makefile
+Makefile.old
+MYMETA.*
+blib/
+Kit-Validator-*.tar.gz
+Kit-Validator-*/

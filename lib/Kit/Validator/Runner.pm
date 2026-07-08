@@ -14,19 +14,123 @@ use File::Basename qw/basename/;
 # Load Genesis lazily.  Framework unit tests import the Runner but
 # should not require the Genesis runtime; only Runner->run does.
 my $GENESIS_LOADED;
+
+# _require_genesis - guarantee that Genesis's Perl lib is loadable and
+# consistent with the genesis binary that the pipeline will shell out
+# to.
+#
+# Coupling problem this solves: `~/.genesis/lib/` reflects whichever
+# genesis binary was last invoked on this box.  If our Perl loads
+# Genesis modules from there and then we shell to a *different* genesis
+# binary (e.g. via KIT_VALIDATOR_GENESIS pointing at a locally-packed
+# g32), that binary re-extracts to the same directory mid-run and we
+# end up straddling two versions -- some modules from image A already
+# in %INC, some file-system state now reflects image B.
+#
+# Fix: at load time, peek at the target binary's embedded checksum
+# (the first line after __DATA__ in the self-extracting stub) and
+# compare against `<genesis_home>/checksum`.  If they match, the
+# extract already reflects the binary we intend to test with -- no
+# action needed.  If they don't (or the checksum file is absent), run
+# `<binary> --version >/dev/null` to force the binary's own extract
+# routine; the resulting state is authoritative for our subsequent
+# module loads.
+#
+# Also honors PERL5LIB / an already-visible Genesis on @INC as a
+# fallback path -- useful for dev iteration inside the studio, where
+# the lib comes from a git checkout, not from a genesis binary extract.
 sub _require_genesis {
 	return if $GENESIS_LOADED;
-	eval {
-		require Genesis;
-		require Service::Vault::Local;
-		1;
-	} or die
-		"Kit::Validator::Runner: Genesis's lib is not loadable.\n".
-		"Kit-validator requires 'use Genesis;' and 'use Service::Vault::Local;'\n".
-		"to succeed.  Set PERL5LIB to include the Genesis checkout's lib/\n".
-		"directory, or run on a kit CI image that already ships Genesis.\n".
-		"Underlying error: $@\n";
+
+	# Fast path: if Genesis is already reachable via @INC (dev
+	# iteration with PERL5LIB set), use it -- but only if it loads
+	# cleanly.  Any load error falls through to the extract path.
+	if (eval { require Genesis; require Service::Vault::Local; 1 }) {
+		$GENESIS_LOADED = 1;
+		return;
+	}
+	my $inline_err = $@;
+
+	my $genesis_home = $ENV{GENESIS_HOME} || ($ENV{HOME}//'').'/.genesis';
+	my $genesis_lib  = "$genesis_home/lib";
+	my $binary       = $ENV{KIT_VALIDATOR_GENESIS} || 'genesis';
+
+	unless (_extract_is_current($binary, $genesis_home)) {
+		my $rc = system("$binary --version >/dev/null 2>&1");
+		die
+			"Kit::Validator::Runner: could not invoke '$binary' to prepare "
+			."the Genesis Perl lib.\n".
+			"Genesis binary exited with status $rc.\n".
+			"Either put a genesis binary on PATH, set "
+			."KIT_VALIDATOR_GENESIS to point at one, or set PERL5LIB to "
+			."include a Genesis checkout's lib/ directory.\n".
+			"Inline-load error was: $inline_err\n"
+			if $rc != 0;
+	}
+
+	die "Kit::Validator::Runner: Genesis lib directory not present at "
+		."$genesis_lib after invoking '$binary'.\n"
+		unless -d $genesis_lib;
+
+	require lib;
+	lib->import($genesis_lib);
+
+	eval { require Genesis; require Service::Vault::Local; 1 } or die
+		"Kit::Validator::Runner: Genesis modules could not be loaded "
+		."from $genesis_lib after successful extract.\nUnderlying error: $@\n";
 	$GENESIS_LOADED = 1;
+}
+
+# _extract_is_current - probe whether ~/.genesis/checksum matches the
+# checksum embedded in the target binary's self-extracting stub.
+# Returns 1 when we can safely skip the `<binary> --version` invocation
+# because the extract is already the right version; returns 0 on any
+# uncertainty (missing files, stub in an unexpected format, etc) --
+# the caller then falls through to invoking the binary, which does its
+# own more thorough check-and-extract.
+sub _extract_is_current {
+	my ($binary, $genesis_home) = @_;
+
+	my $checksum_file = "$genesis_home/checksum";
+	return 0 unless -f $checksum_file;
+	my $have = do {
+		open my $fh, '<', $checksum_file or return 0;
+		local $/;
+		<$fh>;
+	};
+	return 0 unless defined $have;
+	$have =~ s/\s+//g;
+	return 0 unless length $have;
+
+	my $binary_path = _resolve_binary_path($binary);
+	return 0 unless $binary_path && -f $binary_path;
+
+	# The self-extracting stub is a Perl script with an SHA1 as the
+	# first line after `__DATA__`.  If the format ever changes, this
+	# probe returns 0 and we fall through to `<binary> --version`,
+	# which is the authoritative check.
+	open my $bfh, '<', $binary_path or return 0;
+	while (my $line = <$bfh>) {
+		chomp $line;
+		next unless $line eq '__DATA__';
+		my $want = <$bfh>;
+		close $bfh;
+		return 0 unless defined $want;
+		$want =~ s/\s+//g;
+		return $want eq $have ? 1 : 0;
+	}
+	close $bfh;
+	return 0;
+}
+
+sub _resolve_binary_path {
+	my ($name) = @_;
+	return $name if $name =~ m{/} && -x $name;
+	for my $dir (split /:/, ($ENV{PATH}//'')) {
+		next unless length $dir;
+		return "$dir/$name" if -x "$dir/$name";
+	}
+	return undef;
 }
 
 # run - orchestrate one environment through the validation pipeline

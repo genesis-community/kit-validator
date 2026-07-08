@@ -1,0 +1,20 @@
+^\.git/
+^\.gitignore$
+^blib/
+^pm_to_blib$
+^Makefile$
+^Makefile\.old$
+^MYMETA\.
+^Kit-Validator-.*
+\.bak$
+\.tar\.gz$
+
+# Auto-materialised test fixtures -- regenerated on each run.
+^t/fixtures/tiny-kit/spec/vault/
+^t/tmp/
+^cover_db/
+^nytprof
+
+# Editor scrap
+\.sw[a-z]$
+~$

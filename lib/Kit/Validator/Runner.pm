@@ -106,11 +106,17 @@ sub _extract_is_current {
 	return 0 unless $binary_path && -f $binary_path;
 
 	# The self-extracting stub is a Perl script with an SHA1 as the
-	# first line after `__DATA__`.  If the format ever changes, this
-	# probe returns 0 and we fall through to `<binary> --version`,
-	# which is the authoritative check.
+	# first line after `__DATA__`.  If the format ever changes -- or
+	# KIT_VALIDATOR_GENESIS points at something entirely non-Perl --
+	# this probe returns 0 and we fall through to `<binary> --version`,
+	# which is the authoritative check.  Cap the scan at 4KB so we
+	# never slurp a large compiled binary looking for a marker that
+	# will never appear.
 	open my $bfh, '<', $binary_path or return 0;
+	my $seen = 0;
 	while (my $line = <$bfh>) {
+		$seen += length($line);
+		if ($seen > 4096) { close $bfh; return 0 }
 		chomp $line;
 		next unless $line eq '__DATA__';
 		my $want = <$bfh>;

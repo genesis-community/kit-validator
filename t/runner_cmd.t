@@ -7,6 +7,13 @@ use Test::Deep;
 use_ok 'Kit::Validator::Environment';
 use_ok 'Kit::Validator::Runner::Cmd';
 
+# The Cmd builders test 'genesis' argv[0] by default.  When the
+# suite runs with KIT_VALIDATOR_GENESIS=g32 (as the integration
+# test does), the override would poison every subtest below --
+# except the one that tests the override itself.  Scope it to
+# undef for the file.
+delete local $ENV{KIT_VALIDATOR_GENESIS};
+
 # Pure command builders.  Given an Environment + workdir + fixture
 # resolver, they emit the exact arg list each subprocess call needs.
 # The Runner orchestrator threads these through Genesis::run; tests

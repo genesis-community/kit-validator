@@ -46,14 +46,14 @@ for my $auto (qw/vault results credhub/) {
 #   2. genesis init + add-secrets + export -> materialize spec/vault/minimal.yml
 #   3. genesis manifest -> materialize spec/results/minimal.yml
 #   4. subtest passes (first-run: golden is bootstrapped, not compared)
-my $rc = system('prove', '-v', "$kit_dir/spec/spec.t");
+my $rc = system("prove '$kit_dir/spec/spec.t' >/dev/null 2>&1");
 is $rc, 0, 'cold-start run: prove exits 0';
 ok -f "$kit_dir/spec/vault/minimal.yml",   'vault stub was auto-materialized';
 ok -f "$kit_dir/spec/results/minimal.yml", 'results golden was auto-materialized';
 
 # Run 2: warm.  With both stubs present, framework should compare
 # against golden and pass.
-$rc = system('prove', '-v', "$kit_dir/spec/spec.t");
+$rc = system("prove '$kit_dir/spec/spec.t' >/dev/null 2>&1");
 is $rc, 0, 'warm-run: prove exits 0 (spruce diff clean)';
 
 done_testing;

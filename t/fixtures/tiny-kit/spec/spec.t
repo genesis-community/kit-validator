@@ -7,7 +7,10 @@ use FindBin;
 use lib "$FindBin::Bin/../../../../lib";
 
 use Kit::Validator qw/kit_dir test_env/;
+use Test::More;
 
 kit_dir("$FindBin::Bin/..");
 
 test_env(name => 'minimal');
+
+done_testing;

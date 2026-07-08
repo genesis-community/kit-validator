@@ -48,7 +48,9 @@ sub run {
 	require Test::More;
 	Test::More::subtest("env: ".$env->name => sub {
 		my $ok = eval { $class->_execute($env, kit_dir => $kit_dir); 1 };
-		unless ($ok) {
+		if ($ok) {
+			Test::More::pass("pipeline: ".$env->name);
+		} else {
 			my $err = $@;
 			Test::More::fail("pipeline: ".$env->name);
 			Test::More::diag($err);
@@ -106,13 +108,15 @@ sub _execute {
 	_import_exodus_if_present($fx, $env, $vault);
 
 	# 8. Vault-cache bootstrap (only if spec/vault/<env>.yml absent).
-	# When bootstrap runs, the vault is already populated with the real
-	# generated values -- no re-import needed.  When the stub already
-	# exists (subsequent runs), we import it to restore the tokenized
-	# values that spruce will thread through the manifest.
-	my $needs_import = $fx->exists('vault', $env->name);
 	_bootstrap_vault_cache_if_missing($fx, $env, $kit_name, $vault);
-	_import_vault_cache($fx, $env, $vault) if $needs_import;
+
+	# 9. Always import the (now-present) tokenized cache back into the
+	# vault, replacing the real generated values from bootstrap with
+	# the `<!{meta.vault}/...!>` markers that testkit-style specs use.
+	# This is what lets golden manifests be committed to git safely --
+	# they carry the tokens, not real secret material, and every
+	# subsequent smoke run replays the same tokens through spruce.
+	_import_vault_cache($fx, $env, $vault);
 
 	# 10. genesis check with output_matchers awareness.
 	my $check_out = _run_genesis_step(
@@ -321,12 +325,17 @@ sub _run_genesis_step {
 	my $matcher   = $o{matcher};
 	my $capture   = $o{capture};
 
-	# Route through _run_cmd so the HOME/dir plumbing is consistent
-	# with the init step.  Ask for combined stdout+stderr; we don't
-	# use onfailure because we want to inspect rc/output ourselves
-	# rather than letting Genesis::run bail.
-	my ($out, $rc, $err) = _run_cmd($cmd, stderr => '&1');
-	my $combined = defined($out) ? $out : '';
+	# Route through _run_cmd for HOME/dir plumbing.  Capture stdout
+	# and stderr separately -- stderr => 0 tells Genesis::run to
+	# collect stderr into a scratch file and return it as the third
+	# tuple element in list context.  This matters for genesis
+	# manifest, whose stdout IS the YAML we want to feed to Prune;
+	# merging stderr would corrupt the manifest with progress
+	# banners like `[env/kit] determining manifest fragments...`.
+	my ($out, $rc, $err) = _run_cmd($cmd, stderr => 0);
+	$out //= '';
+	$err //= '';
+	my $combined = $out . ($err ? "\n$err" : '');
 
 	if ($matcher) {
 		# output_matchers case: env expects the subcommand to fail (or
@@ -348,7 +357,9 @@ sub _run_genesis_step {
 	if ($rc) {
 		die "$step_name failed (rc=$rc):\n$combined\n";
 	}
-	return $capture ? $combined : undef;
+	# Capture returns stdout only -- callers that want the manifest
+	# YAML need it uncontaminated by progress banners.
+	return $capture ? $out : undef;
 }
 
 sub _env_has_proto_feature {
@@ -368,22 +379,90 @@ sub _bootstrap_credhub_stub_if_missing {
 
 sub _interpolate {
 	my ($fx, $env, $manifest, $bosh_vars, $workdir) = @_;
-	# TBD: write $manifest + $bosh_vars to tempfiles, run bosh int.
-	# Deferred to BOSH-pilot integration work.
-	die "_interpolate: not implemented (deferred to pilot integration)\n";
+
+	# Write $manifest and $bosh_vars to scratch files, then shell to
+	# `bosh int` with --vars-file each of them plus any credhub bits.
+	# Returns the rendered YAML text.
+	require Genesis;
+	my $manifest_yaml = Genesis::to_yaml($manifest);
+	my $vars_yaml     = Genesis::to_yaml($bosh_vars // {});
+
+	my $mpath = "$workdir/kv-manifest.yml";
+	my $vpath = "$workdir/kv-bosh-vars.yml";
+	open my $mfh, '>', $mpath or die "cannot write $mpath: $!";
+	print $mfh $manifest_yaml;
+	close $mfh;
+	open my $vfh, '>', $vpath or die "cannot write $vpath: $!";
+	print $vfh $vars_yaml;
+	close $vfh;
+
+	# Optional credhub_variables (per-env literal overrides) and the
+	# credhub stub (tokenized).  Both are threaded into `bosh int` as
+	# additional --vars-file entries in the same order testkit uses.
+	my (@credhub_vars, @credhub_stub);
+	if (my $cv = $env->credhub_vars) {
+		if ($fx->exists('credhub_variables', $cv)) {
+			@credhub_vars = ($fx->path('credhub_variables', $cv));
+		}
+	}
+	if ($fx->exists('credhub', $env->name)) {
+		@credhub_stub = ($fx->path('credhub', $env->name));
+	}
+
+	my $cmd = Kit::Validator::Runner::Cmd::bosh_int_cmd(
+		manifest_path      => $mpath,
+		bosh_vars_path     => $vpath,
+		credhub_vars_path  => $credhub_vars[0],
+		credhub_stub_path  => $credhub_stub[0],
+	);
+	my ($out, $rc, $err) = _run_cmd($cmd, stderr => 0);
+	if ($rc) {
+		die "bosh int failed (rc=$rc):\n$out\n$err\n";
+	}
+	return $out;
 }
 
 sub _compare_or_bootstrap_golden {
 	my ($fx, $env, $rendered) = @_;
 	if (!$fx->exists('results', $env->name)) {
-		# First run: materialize the golden and pass.
+		# First run: materialize the golden and pass silently.
+		# Parity with testkit's createResultIfMissingForManifest.
 		$fx->write('results', $env->name, $rendered);
 		return;
 	}
-	# TBD: shell to `spruce diff <golden> <tmp/actual>`, fail with the
-	# diff body on nonzero rc.
-	# Deferred to BOSH-pilot integration work.
-	die "_compare_or_bootstrap_golden: not implemented (deferred to pilot integration)\n";
+
+	# Write the rendered manifest to a temp path so spruce diff can
+	# see it as a file (spruce reads from paths, not stdin).
+	require File::Temp;
+	my ($fh, $actual) = File::Temp::tempfile(
+		'kv-actual-XXXXXX', SUFFIX => '.yml',
+		DIR => File::Spec->tmpdir, UNLINK => 1,
+	);
+	print $fh $rendered;
+	close $fh;
+
+	my $golden = $fx->path('results', $env->name);
+	my ($out, $rc, $err) = _run_cmd(
+		Kit::Validator::Runner::Cmd::spruce_diff_cmd(
+			golden_path => $golden,
+			actual_path => $actual,
+		),
+		stderr => 0,
+	);
+	# spruce diff exit codes:
+	#   0 = no changes
+	#   1 = differences (real diff to report)
+	#   >1 = tool error (bad YAML, missing file, etc.)
+	return if ($rc // 0) == 0;
+
+	# Strip ANSI when the test harness isn't a TTY -- CI logs already
+	# stripped, but `prove` locally can be either.
+	my $diff = defined($out) ? $out : '';
+	$diff .= "\n$err" if $err;
+	unless (-t STDOUT) {
+		$diff =~ s/\e\[[0-9;]*m//g;
+	}
+	die "manifest differs from spec/results/".$env->name.".yml:\n$diff\n";
 }
 
 1;

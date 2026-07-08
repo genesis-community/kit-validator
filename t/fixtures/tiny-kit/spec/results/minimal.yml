@@ -1,0 +1,22 @@
+exodus:
+  bosh: null
+  features: ""
+  iaas: test
+  is_director: true
+  scale: null
+  services: director
+  use_create_env: true
+instance_groups:
+- instances: 1
+  name: hello
+  properties:
+    greeting: Hello, minimal!
+    password: <!{meta.vault}/hello:password!>
+name: minimal-tiny
+releases: []
+stemcells: []
+update:
+  canaries: 1
+  canary_watch_time: 30000
+  max_in_flight: 1
+  update_watch_time: 30000

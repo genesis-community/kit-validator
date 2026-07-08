@@ -1,0 +1,18 @@
+# perl
+*.bak
+.build/
+blib/
+Makefile.old
+MYMETA.*
+pm_to_blib
+
+# test artefacts
+t/tmp/
+cover_db/
+nytprof/
+nytprof.out
+
+# editors
+.*.sw?
+*~
+.DS_Store

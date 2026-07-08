@@ -127,9 +127,8 @@ sub _execute {
 	return unless defined $manifest_yaml;
 
 	# 12. Prune volatile keys; peel off bosh-variables.
-	require YAML::PP;
-	my $ypp = YAML::PP->new;
-	my $manifest = $ypp->load_string($manifest_yaml);
+	# Parse via Genesis::load_yaml (spruce-shell under the hood).
+	my $manifest = Genesis::load_yaml($manifest_yaml);
 	my $is_proto = _env_has_proto_feature($env, $workdir);
 	my ($pruned, $bosh_vars)
 		= Kit::Validator::Prune::prune_manifest($manifest, {is_proto => $is_proto});
@@ -152,12 +151,13 @@ sub _execute {
 
 sub _detect_kit_name {
 	my ($kit_dir) = @_;
-	# Kits ship a kit.yml at the repo root.
+	# Kits ship a kit.yml at the repo root.  Parse via Genesis's
+	# spruce-shell helper -- avoids a hard dep on YAML::PP that
+	# Genesis itself has already opted out of.
 	my $kit_yml = "$kit_dir/kit.yml";
 	die "Kit::Validator::Runner: no kit.yml at $kit_yml\n"
 		unless -f $kit_yml;
-	require YAML::PP;
-	my $kit = YAML::PP->new->load_file($kit_yml);
+	my $kit = Genesis::load_yaml_file($kit_yml);
 	my $name = $kit->{name}
 		or die "Kit::Validator::Runner: kit.yml has no 'name'\n";
 	return $name;

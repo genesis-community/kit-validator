@@ -1,0 +1,7 @@
+---
+kit:
+  name:     tiny
+  version:  latest
+  features: []
+genesis:
+  env: minimal

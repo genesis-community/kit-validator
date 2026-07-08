@@ -2,7 +2,7 @@ package Kit::Validator;
 use v5.20;
 use warnings;
 
-our $VERSION = '0.0.1';
+our $VERSION = '0.1.0';
 
 use Exporter 'import';
 our @EXPORT_OK = qw/kit_dir test_env/;

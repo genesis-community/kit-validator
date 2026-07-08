@@ -106,10 +106,13 @@ sub _execute {
 	_import_exodus_if_present($fx, $env, $vault);
 
 	# 8. Vault-cache bootstrap (only if spec/vault/<env>.yml absent).
+	# When bootstrap runs, the vault is already populated with the real
+	# generated values -- no re-import needed.  When the stub already
+	# exists (subsequent runs), we import it to restore the tokenized
+	# values that spruce will thread through the manifest.
+	my $needs_import = $fx->exists('vault', $env->name);
 	_bootstrap_vault_cache_if_missing($fx, $env, $kit_name, $vault);
-
-	# 9. Always import the (now-present) vault cache.
-	_import_vault_cache($fx, $env, $vault);
+	_import_vault_cache($fx, $env, $vault) if $needs_import;
 
 	# 10. genesis check with output_matchers awareness.
 	my $check_out = _run_genesis_step(
@@ -164,6 +167,17 @@ sub _run_cmd {
 	my ($argv, %opts) = @_;
 	die "_run_cmd: expected arrayref argv, got ".ref($argv)."\n"
 		unless ref $argv eq 'ARRAY' && @$argv;
+	# Force HOME explicitly through the opts.env layer -- Genesis::run
+	# has a `local %ENV = %ENV` that inherits from caller, but a
+	# subprocess's HOME can otherwise drift if any Genesis::* helper
+	# unsets it along the way, and a lost HOME breaks safe/.saferc
+	# lookup silently (all_vaults returns []).
+	$opts{env} = {%{$opts{env}//{}}, HOME => $ENV{HOME}};
+	# Default the subprocess CWD to $HOME (which the Runner has already
+	# scoped to the per-env workdir), so `--cwd deployments/` and
+	# similar relative paths resolve.  Callers may still override via
+	# an explicit `dir => ...`.
+	$opts{dir} //= $ENV{HOME};
 	return Genesis::run(\%opts, @$argv);
 }
 
@@ -237,22 +251,104 @@ sub _import_exodus_if_present {
 sub _bootstrap_vault_cache_if_missing {
 	my ($fx, $env, $kit_name, $vault) = @_;
 	return if $fx->exists('vault', $env->name);
-	# TBD: run check-secrets + add-secrets + export + tokenize + write.
-	# Deferred to BOSH-pilot integration work.
+
+	# Ask genesis for the "provided" secret paths that need external
+	# seeding (things a real deploy would supply -- IaaS creds, TLS
+	# CA overrides, etc.).  Everything else (random passwords, self-
+	# signed certs, etc.) genesis will generate via add-secrets.
+	my $checksecrets = _run_cmd(
+		Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env),
+		stderr => '&1',
+	);
+	# _run_cmd returns whatever Genesis::run returns; when it's scalar,
+	# that's the combined output.  Parse for `provided:` lines emitted
+	# by check-secrets (path:key entries).
+	if (defined $checksecrets) {
+		for my $line (split /\n/, $checksecrets) {
+			next unless $line =~ /^\s*(secret\/\S+):(\S+)\s+provided\s*$/;
+			my ($path, $key) = ($1, $2);
+			# Stub value; content doesn't matter, only presence.
+			_run_cmd(['safe', 'set', $path, "$key=stub"], stderr => '&1');
+		}
+	}
+
+	# add-secrets generates every non-provided secret.
+	_run_cmd(
+		Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env),
+		onfailure => "genesis add-secrets failed for ".$env->name,
+	);
+
+	# Export everything under secret/<env-with-slashes>/<kit>/ and
+	# tokenize the leaves to `<!{meta.vault}/<sub>:<key>!>`.
+	my $vault_base = Kit::Validator::Bootstrap::env_vault_base(
+		$env->name, $kit_name);
+	my $export_json = _run_cmd(
+		['safe', 'export', $vault_base],
+		stderr => '&1',
+	);
+	# safe export emits JSON keyed by full vault path with {key=>value}
+	# leaves.  Empty on no matches.
+	require Genesis;
+	my $export = Genesis::load_json($export_json // '{}');
+	$export = {} unless ref($export) eq 'HASH';
+	my $tokenized = Kit::Validator::Bootstrap::tokenize_vault_export(
+		$export,
+		env_name => $env->name,
+		kit_name => $kit_name,
+	);
+	# Write to spec/vault/<env>.yml via Genesis::to_yaml (which shells
+	# through spruce for consistent output).
+	my $body = Genesis::to_yaml($tokenized);
+	$fx->write('vault', $env->name, $body);
 }
 
 sub _import_vault_cache {
 	my ($fx, $env, $vault) = @_;
-	# TBD: safe import spec/vault/<env>.yml into the running vault.
-	# Deferred to BOSH-pilot integration work.
+	return unless $fx->exists('vault', $env->name);
+	# safe import reads JSON from stdin; our spec/vault/<env>.yml is
+	# YAML.  Roundtrip via load_yaml + JSON::PP to feed safe.
+	require Genesis;
+	require JSON::PP;
+	my $data = Genesis::load_yaml_file($fx->path('vault', $env->name)) || {};
+	my $json = JSON::PP->new->allow_nonref->encode($data);
+	_run_cmd(['safe', 'import'], stderr => '&1', stdin => $json);
 }
 
 sub _run_genesis_step {
 	my (%o) = @_;
-	# TBD: shell out via Genesis::run, capture stdout+stderr, apply
-	# output_matcher regex if set, return output or undef.
-	# Deferred to BOSH-pilot integration work.
-	die "_run_genesis_step: not implemented (deferred to pilot integration)\n";
+	my $cmd       = $o{cmd}       or die "_run_genesis_step: cmd required\n";
+	my $step_name = $o{step_name} or die "_run_genesis_step: step_name required\n";
+	my $matcher   = $o{matcher};
+	my $capture   = $o{capture};
+
+	# Route through _run_cmd so the HOME/dir plumbing is consistent
+	# with the init step.  Ask for combined stdout+stderr; we don't
+	# use onfailure because we want to inspect rc/output ourselves
+	# rather than letting Genesis::run bail.
+	my ($out, $rc, $err) = _run_cmd($cmd, stderr => '&1');
+	my $combined = defined($out) ? $out : '';
+
+	if ($matcher) {
+		# output_matchers case: env expects the subcommand to fail (or
+		# succeed) with a specific message.  Regex-match the combined
+		# stream; non-zero rc is tolerated when the matcher fires.
+		if ($combined =~ $matcher) {
+			# Pattern matched -- this env's assertion is satisfied at
+			# the CLI-output layer, not at the manifest-diff layer.
+			# Return undef so the caller short-circuits the remainder
+			# of the pipeline (prune/interpolate/diff).
+			return;
+		}
+		die "$step_name: output_matcher did not match.\n".
+		    "Pattern: $matcher\n".
+		    "Output:\n$combined\n";
+	}
+
+	# No matcher: expect a clean exit.
+	if ($rc) {
+		die "$step_name failed (rc=$rc):\n$combined\n";
+	}
+	return $capture ? $combined : undef;
 }
 
 sub _env_has_proto_feature {

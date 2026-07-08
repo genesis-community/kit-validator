@@ -16,3 +16,4 @@ nytprof.out
 .*.sw?
 *~
 .DS_Store
+t/fixtures/tiny-kit/spec/vault/

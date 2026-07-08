@@ -19,6 +19,14 @@ description: |
 supports:
   - test
 
+# Declared as a director-service kit so `genesis check` doesn't try
+# to look up an external BOSH director for the env -- tiny-kit is a
+# smoke fixture, not a real deploy.  Real kits will either be
+# director kits themselves (bosh, blacksmith, etc.) or reference a
+# director via a spec/exodus/*.yml stub.
+services:
+  - director
+
 credentials:
   base:
     hello:

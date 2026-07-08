@@ -1,7 +1,8 @@
 ---
 kit:
-  name:     tiny
+  name:     dev
   version:  latest
+  iaas:     test
   features: []
 genesis:
   env: minimal

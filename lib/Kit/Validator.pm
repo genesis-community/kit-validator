@@ -24,6 +24,15 @@ sub test_env {
 	require Kit::Validator::Runner;
 	my $env = Kit::Validator::Environment->new(@_);
 	push @ENVIRONMENTS, $env;
+
+	# KIT_VALIDATOR_FOCUS is a colon-separated allowlist of env names.
+	# When set, only matching envs run; the rest silently skip.  Mirrors
+	# Ginkgo's --focus (and the Environment.focus flag when set inline).
+	if (my $focus = $ENV{KIT_VALIDATOR_FOCUS}) {
+		my %allow = map { $_ => 1 } split /:/, $focus;
+		return $env unless $allow{$env->name};
+	}
+
 	Kit::Validator::Runner->run($env, kit_dir => $KIT_DIR);
 	return $env;
 }

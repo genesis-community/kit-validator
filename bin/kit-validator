@@ -1,0 +1,97 @@
+#!/usr/bin/env perl
+use v5.20;
+use warnings;
+
+use Getopt::Long qw/GetOptionsFromArray/;
+use File::Basename qw/dirname/;
+use File::Spec;
+use Cwd qw/abs_path/;
+
+my $PROG = 'kit-validator';
+
+sub usage {
+	print <<EOF;
+Usage: $PROG <command> [options]
+
+Commands:
+  run [<spec-path>]            Run the spec suite (default: ./spec/spec.t)
+
+Options for 'run':
+  --focus <env>                Only run the named environment (repeatable)
+  --update-goldens             Delete existing spec/results/<env>.yml for
+                               --focus'd envs before running, so the next
+                               run re-materializes them.
+  --verbose                    Verbose output (prove -v).
+  -h, --help                   Show this help.
+
+Environment:
+  KIT_VALIDATOR_FOCUS          Colon-separated env names to focus on
+                               (equivalent to repeated --focus).
+
+EOF
+	exit(0);
+}
+
+my $cmd = shift @ARGV // '';
+usage() if $cmd eq '' || $cmd eq '-h' || $cmd eq '--help';
+
+if ($cmd eq 'run') {
+	exit run_specs(@ARGV);
+}
+
+warn "$PROG: unknown command: $cmd\n\n";
+usage();
+
+sub run_specs {
+	my @args = @_;
+	my (@focus, $update_goldens, $verbose, $help);
+	GetOptionsFromArray(\@args,
+		'focus=s'         => \@focus,
+		'update-goldens'  => \$update_goldens,
+		'verbose|v'       => \$verbose,
+		'help|h'          => \$help,
+	) or usage();
+	usage() if $help;
+
+	my $spec_path = shift @args // 'spec/spec.t';
+	unless (-e $spec_path) {
+		# Bare directory -> assume spec.t inside.
+		if (-d $spec_path && -f "$spec_path/spec.t") {
+			$spec_path = "$spec_path/spec.t";
+		} else {
+			warn "$PROG: spec file not found: $spec_path\n";
+			return 2;
+		}
+	}
+
+	# --update-goldens deletes matched result files upfront.  Only
+	# meaningful with --focus (otherwise we'd blow away every golden;
+	# that's a bulk operation the user should do with rm(1)).
+	if ($update_goldens) {
+		unless (@focus) {
+			warn "$PROG: --update-goldens requires at least one --focus\n";
+			return 2;
+		}
+		my $spec_dir = dirname(abs_path($spec_path));
+		for my $env (@focus) {
+			my $g = "$spec_dir/results/$env.yml";
+			if (-f $g) {
+				unlink $g or warn "$PROG: could not remove $g: $!\n";
+				print "$PROG: removed $g\n";
+			}
+		}
+	}
+
+	# Focus is threaded through KIT_VALIDATOR_FOCUS.  The framework
+	# reads it in test_env and short-circuits non-matching envs.
+	if (@focus) {
+		$ENV{KIT_VALIDATOR_FOCUS} = join(':', @focus);
+	}
+
+	my @prove_args = ('prove');
+	push @prove_args, '-v' if $verbose;
+	push @prove_args, $spec_path;
+
+	exec @prove_args;
+	die "$PROG: exec prove failed: $!\n";
+}

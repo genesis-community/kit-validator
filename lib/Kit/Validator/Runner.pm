@@ -248,8 +248,55 @@ sub _copy_ops_fixtures {
 sub _import_exodus_if_present {
 	my ($fx, $env, $vault) = @_;
 	return unless $env->exodus;
-	# TBD: import <spec/exodus/<name>.yml> under secret/exodus/<env>.
-	# Deferred to BOSH-pilot integration work.
+	my $stub = $fx->path('exodus', $env->exodus);
+	die "spec/exodus/".$env->exodus.".yml is missing (declared by env "
+		.$env->name.")\n"
+		unless -f $stub;
+
+	# The stub is keyed by service type at the top level; each nested
+	# tree becomes flat fields under secret/exodus/<env>/<type>.  Genesis
+	# then reads with unflatten() on the far side, so nested paths
+	# rejoin transparently.
+	#
+	# Example:
+	#   old-version.yml:  { bosh: { kit_version: 2.3.0 } }
+	#   =>  safe set secret/exodus/upgrade/bosh kit_version=2.3.0
+	require Genesis;
+	my $exodus = Genesis::load_yaml_file($stub);
+	die "spec/exodus/".$env->exodus.".yml is not a hash\n"
+		unless ref($exodus) eq 'HASH';
+
+	for my $type (keys %$exodus) {
+		my $subtree = $exodus->{$type};
+		next unless ref($subtree) eq 'HASH';
+		my %flat = _flatten_leaves($subtree);
+		next unless keys %flat;
+		my $path = 'secret/exodus/'.$env->name.'/'.$type;
+		# `safe set` accepts key=value pairs positionally.
+		_run_cmd(
+			['safe', 'set', $path, map { "$_=$flat{$_}" } keys %flat],
+			stderr => '&1',
+		);
+	}
+}
+
+# _flatten_leaves - depth-first walk a nested hash, joining keys with
+# '.' so the vault entry mirrors what unflatten() expects on the read
+# side.  Arrays are stringified as-is; nulls become empty strings.
+sub _flatten_leaves {
+	my ($tree, $prefix) = @_;
+	$prefix //= '';
+	my %out;
+	for my $key (keys %$tree) {
+		my $val = $tree->{$key};
+		my $new_key = length($prefix) ? "$prefix.$key" : $key;
+		if (ref($val) eq 'HASH') {
+			%out = (%out, _flatten_leaves($val, $new_key));
+		} else {
+			$out{$new_key} = defined($val) ? $val : '';
+		}
+	}
+	return %out;
 }
 
 sub _bootstrap_vault_cache_if_missing {

@@ -217,6 +217,18 @@ sub _execute {
 	# 7. Import exodus stub if present.
 	_import_exodus_if_present($fx, $env, $vault);
 
+	# 7b. Seed empty CPI-config stub in the workdir.  Genesis's
+	# opportunistic-cpi prefetch (Env::required_configs) auto-appends
+	# `cpi` to the required-configs list for the check / manifest /
+	# deploy hooks.  Without a value on disk, download_configs will
+	# reach for the parent BOSH director -- which the ephemeral
+	# workdir never has -- and bail.  Writing an empty `cpis: []`
+	# stub and passing it via `-c cpi=<path>` satisfies has_config
+	# without touching a director.  Per-env cpi fixtures override
+	# via $env->cpi_config.
+	my $cpi_stub_path = "$workdir/empty-cpi.yml";
+	_write_cpi_stub($cpi_stub_path);
+
 	# 8. Vault-cache bootstrap (only if spec/vault/<env>.yml absent).
 	_bootstrap_vault_cache_if_missing($fx, $env, $kit_name, $vault);
 
@@ -231,7 +243,8 @@ sub _execute {
 	# 10. genesis check with output_matchers awareness.
 	my $check_out = _run_genesis_step(
 		cmd       => Kit::Validator::Runner::Cmd::genesis_check_cmd(
-			env => $env, fixture_dir => $fixture_dir),
+			env => $env, fixture_dir => $fixture_dir,
+			cpi_stub_path => $cpi_stub_path),
 		matcher   => $env->output_matchers->{genesis_check},
 		step_name => 'genesis check',
 	);
@@ -239,7 +252,8 @@ sub _execute {
 	# 11. genesis manifest with output_matchers awareness.
 	my $manifest_yaml = _run_genesis_step(
 		cmd       => Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
-			env => $env, fixture_dir => $fixture_dir),
+			env => $env, fixture_dir => $fixture_dir,
+			cpi_stub_path => $cpi_stub_path),
 		matcher   => $env->output_matchers->{genesis_manifest},
 		step_name => 'genesis manifest',
 		capture   => 1,
@@ -353,6 +367,15 @@ sub _copy_ops_fixtures {
 			"$workdir/deployments/ops/$op.yml",
 		) or die "copy of ops/$op failed: $!";
 	}
+}
+
+sub _write_cpi_stub {
+	my ($path) = @_;
+	open(my $fh, '>', $path)
+		or die "kit-validator: cannot write cpi stub $path: $!\n";
+	print $fh "---\ncpis: []\n";
+	close $fh;
+	return $path;
 }
 
 sub _import_exodus_if_present {

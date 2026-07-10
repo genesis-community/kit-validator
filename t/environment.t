@@ -23,6 +23,7 @@ subtest 'minimal env: name only, sensible defaults' => sub {
 	is $env->name, 'aws',                'name preserved';
 	is $env->cloud_config,      undef,   'cloud_config defaults to undef';
 	is $env->runtime_config,    undef,   'runtime_config defaults to undef';
+	is $env->cpi_config,        undef,   'cpi_config defaults to undef';
 	is $env->credhub_vars,      undef,   'credhub_vars defaults to undef';
 	is $env->exodus,            undef,   'exodus defaults to undef';
 	is $env->cpi,               '',      'cpi defaults to empty string';
@@ -36,6 +37,7 @@ subtest 'full env: all fields settable' => sub {
 		name           => 'aws',
 		cloud_config   => 'aws',
 		runtime_config => 'dns',
+		cpi_config     => 'aws-multi-iam',
 		credhub_vars   => 'aws',
 		exodus         => 'old-version',
 		cpi            => 'aws',
@@ -49,6 +51,7 @@ subtest 'full env: all fields settable' => sub {
 	is $env->name,           'aws';
 	is $env->cloud_config,   'aws';
 	is $env->runtime_config, 'dns';
+	is $env->cpi_config,     'aws-multi-iam';
 	is $env->credhub_vars,   'aws';
 	is $env->exodus,         'old-version';
 	is $env->cpi,            'aws';

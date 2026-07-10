@@ -99,6 +99,63 @@ subtest 'genesis_check_cmd: cloud + runtime configs' => sub {
 	], 'both configs land as consecutive -c flags';
 };
 
+subtest 'genesis_check_cmd: cpi stub path adds -c cpi=<path>' => sub {
+	# Genesis 1146a669e opportunistically appends `cpi` to required_configs
+	# for the check/manifest hooks.  Without a value on disk, download_configs
+	# reaches for the parent BOSH director and bails.  The Runner writes an
+	# empty stub into the workdir and passes it via cpi_stub_path.
+	my $env = env(cloud_config => 'aws');
+	my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+		env           => $env,
+		fixture_dir   => '/kits/bosh/spec',
+		cpi_stub_path => '/tmp/kv-wd/empty-cpi.yml',
+	);
+	is_deeply $cmd, [
+		'genesis', 'check',
+		'--cwd', 'deployments/',
+		'--no-manifest',
+		'--no-stemcells',
+		'-c', 'cloud=/kits/bosh/spec/cloud_configs/aws.yml',
+		'-c', 'cpi=/tmp/kv-wd/empty-cpi.yml',
+		$ENV_NAME,
+	], 'stub cpi lands as -c cpi=<workdir-path> when env has no cpi_config';
+};
+
+subtest 'genesis_check_cmd: env->cpi_config overrides the stub' => sub {
+	# Opt-in per-env CPI fixture wins over the workdir stub -- used to
+	# exercise multi-CPI configs, IAM profile variants, etc.
+	my $env = env(cloud_config => 'aws', cpi_config => 'aws-multi-iam');
+	my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+		env           => $env,
+		fixture_dir   => '/kits/bosh/spec',
+		cpi_stub_path => '/tmp/kv-wd/empty-cpi.yml',
+	);
+	is_deeply $cmd, [
+		'genesis', 'check',
+		'--cwd', 'deployments/',
+		'--no-manifest',
+		'--no-stemcells',
+		'-c', 'cloud=/kits/bosh/spec/cloud_configs/aws.yml',
+		'-c', 'cpi=/kits/bosh/spec/cpi_configs/aws-multi-iam.yml',
+		$ENV_NAME,
+	], 'env->cpi_config points at spec/cpi_configs/<name>.yml';
+};
+
+subtest 'genesis_manifest_cmd: cpi stub also plumbs through' => sub {
+	my $env = env(cloud_config => 'aws');
+	my $cmd = Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
+		env           => $env,
+		fixture_dir   => '/kits/bosh/spec',
+		cpi_stub_path => '/tmp/kv-wd/empty-cpi.yml',
+	);
+	is_deeply $cmd, [
+		'genesis', "deployments/$ENV_NAME", 'manifest',
+		'--type=unredacted',
+		'-c', 'cloud=/kits/bosh/spec/cloud_configs/aws.yml',
+		'-c', 'cpi=/tmp/kv-wd/empty-cpi.yml',
+	], 'manifest command carries the same cpi stub as check';
+};
+
 subtest 'genesis_manifest_cmd: env name is used in the subject position' => sub {
 	my $env = env(cloud_config => 'aws');
 	my $cmd = Kit::Validator::Runner::Cmd::genesis_manifest_cmd(

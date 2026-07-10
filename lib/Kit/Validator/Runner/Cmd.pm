@@ -13,14 +13,26 @@ sub _genesis_bin {
 	return $ENV{KIT_VALIDATOR_GENESIS} || 'genesis';
 }
 
-sub _cloud_runtime_flags {
-	my ($env, $fixture_dir) = @_;
+sub _config_flags {
+	my ($env, $fixture_dir, $cpi_stub_path) = @_;
 	my @flags;
 	if (defined(my $cc = $env->cloud_config)) {
 		push @flags, '-c', "cloud=$fixture_dir/cloud_configs/$cc.yml";
 	}
 	if (defined(my $rc = $env->runtime_config)) {
 		push @flags, '-c', "runtime=$fixture_dir/runtime_configs/$rc.yml";
+	}
+	# CPI config: Genesis's opportunistic prefetch (Env::required_configs)
+	# auto-appends `cpi` to the required-configs list for the check /
+	# manifest / deploy hooks.  Without a value on disk, the resulting
+	# `download_configs` call reaches for the parent BOSH director --
+	# which kit-validator's ephemeral workdir never has.  Supply either
+	# the env's opted-in cpi fixture or an empty stub written by the
+	# Runner into the workdir.
+	if (defined(my $ci = $env->cpi_config)) {
+		push @flags, '-c', "cpi=$fixture_dir/cpi_configs/$ci.yml";
+	} elsif (defined $cpi_stub_path) {
+		push @flags, '-c', "cpi=$cpi_stub_path";
 	}
 	return @flags;
 }
@@ -45,7 +57,7 @@ sub genesis_check_cmd {
 		'--cwd', 'deployments/',
 		'--no-manifest',
 		'--no-stemcells',
-		_cloud_runtime_flags($env, $o{fixture_dir}),
+		_config_flags($env, $o{fixture_dir}, $o{cpi_stub_path}),
 		$env->name,
 	];
 }
@@ -56,7 +68,7 @@ sub genesis_manifest_cmd {
 	return [
 		_genesis_bin(), 'deployments/'.$env->name, 'manifest',
 		'--type=unredacted',
-		_cloud_runtime_flags($env, $o{fixture_dir}),
+		_config_flags($env, $o{fixture_dir}, $o{cpi_stub_path}),
 	];
 }
 

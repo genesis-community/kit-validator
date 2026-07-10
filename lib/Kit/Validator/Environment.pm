@@ -37,6 +37,7 @@ sub new {
 		name            => $name,
 		cloud_config    => $opts{cloud_config},
 		runtime_config  => $opts{runtime_config},
+		cpi_config      => $opts{cpi_config},
 		credhub_vars    => $opts{credhub_vars},
 		exodus          => $opts{exodus},
 		cpi             => $opts{cpi} // '',
@@ -49,6 +50,7 @@ sub new {
 sub name            { $_[0]{name} }
 sub cloud_config    { $_[0]{cloud_config} }
 sub runtime_config  { $_[0]{runtime_config} }
+sub cpi_config      { $_[0]{cpi_config} }
 sub credhub_vars    { $_[0]{credhub_vars} }
 sub exodus          { $_[0]{exodus} }
 sub cpi             { $_[0]{cpi} }
@@ -83,6 +85,10 @@ C<spec/deployments/E<lt>nameE<gt>.yml>.
 =item * C<cloud_config> -- resolves to C<spec/cloud_configs/E<lt>valueE<gt>.yml>.
 
 =item * C<runtime_config> -- resolves to C<spec/runtime_configs/E<lt>valueE<gt>.yml>.
+
+=item * C<cpi_config> -- resolves to C<spec/cpi_configs/E<lt>valueE<gt>.yml>.
+When unset, the Runner supplies an empty stub (C<cpis: []>) to satisfy
+Genesis's opportunistic CPI prefetch without a live director lookup.
 
 =item * C<credhub_vars> -- resolves to C<spec/credhub_variables/E<lt>valueE<gt>.yml>.
 

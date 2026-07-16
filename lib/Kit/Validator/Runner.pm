@@ -183,6 +183,15 @@ sub _execute {
 	my ($class, $env, %opts) = @_;
 	_require_genesis();
 
+	# Reject any env name Genesis itself would reject, using
+	# Genesis's own validator.  This also blocks path-traversal /
+	# shell-metachar injection into the per-env workdir path we're
+	# about to build under $ENV{HOME}.
+	require Genesis::Env;
+	if (my $err = Genesis::Env::_env_name_errors($env->name)) {
+		die "Kit::Validator::Runner: invalid env name '".$env->name."':\n$err";
+	}
+
 	my $kit_dir     = $opts{kit_dir};
 	my $kit_name    = _detect_kit_name($kit_dir);
 	my $fixture_dir = "$kit_dir/spec";

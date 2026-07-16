@@ -18,6 +18,9 @@ sub new {
 	my $name = $opts{name};
 	die "Kit::Validator::Environment: name is required\n"
 		unless defined $name && length $name;
+	# Semantic validation of the env name (character set, path-traversal
+	# safety, etc.) happens in Kit::Validator::Runner where Genesis::Env
+	# is already loaded and its _env_name_errors is DRY-callable.
 
 	my $ops = $opts{ops} // [];
 	die "Kit::Validator::Environment: ops must be an arrayref\n"

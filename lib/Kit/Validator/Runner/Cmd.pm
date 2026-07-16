@@ -72,6 +72,15 @@ sub genesis_manifest_cmd {
 	];
 }
 
+sub genesis_yamls_cmd {
+	my (%o) = @_;
+	my $env = $o{env};
+	return [
+		_genesis_bin(), 'deployments/'.$env->name, 'yamls',
+		_config_flags($env, $o{fixture_dir}, $o{cpi_stub_path}),
+	];
+}
+
 sub genesis_check_secrets_cmd {
 	my (%o) = @_;
 	return [

@@ -279,7 +279,18 @@ sub _execute {
 		step_name => 'genesis check',
 	);
 
-	# 11. genesis manifest with output_matchers awareness.
+	# 11. genesis yamls: capture merge order, diff against golden.
+	# Runs as its own subtest so blueprint-order regressions surface
+	# separately from manifest-content regressions.  Skipped when the
+	# env expects genesis_check to fail (matcher set) -- a failing
+	# check means yamls generation isn't reachable in real usage.
+	_run_yamls_diff_step(
+		env         => $env,
+		fixture_dir => $fixture_dir,
+		cpi_stub_path => $cpi_stub_path,
+	) unless $env->output_matchers->{genesis_check};
+
+	# 12. genesis manifest with output_matchers awareness.
 	my $manifest_yaml = _run_genesis_step(
 		cmd       => Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
 			env => $env, fixture_dir => $fixture_dir,
@@ -373,6 +384,148 @@ sub DESTROY {
 	eval { $self->{vault}->shutdown } if $self->{vault};
 }
 package Kit::Validator::Runner;
+
+# _run_yamls_diff_step - invoke `genesis <env> yamls`, normalize
+# the kit-version tokens, and diff against spec/results/<env>.yamls.txt.
+# Emits an independent Test::More::subtest so a yamls-order failure
+# is visible without the manifest-content diff drowning it out.
+#
+# Bootstrap: if the golden file doesn't exist, write current
+# normalized output to it and pass with a diag() note.  Mirrors
+# testkit's createResultIfMissingForManifest behavior -- first run
+# generates goldens, subsequent runs enforce them.
+sub _run_yamls_diff_step {
+	my (%o) = @_;
+	my $env = $o{env};
+	my $golden_path = "$o{fixture_dir}/results/".$env->name.".yamls.txt";
+
+	require Test::More;
+	Test::More::subtest("yamls: ".$env->name => sub {
+		my ($out, $rc, $err) = _run_cmd(
+			Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
+				env => $env,
+				fixture_dir => $o{fixture_dir},
+				cpi_stub_path => $o{cpi_stub_path},
+			),
+			stderr => 0,
+		);
+		if ($rc != 0) {
+			Test::More::fail("genesis yamls exited with rc=$rc");
+			Test::More::diag("stderr:\n$err") if defined $err && length $err;
+			return;
+		}
+
+		my $actual = _normalize_yamls_output($out);
+
+		if (!-f $golden_path) {
+			require File::Path;
+			File::Path::make_path("$o{fixture_dir}/results");
+			open my $fh, '>', $golden_path
+				or die "cannot write $golden_path: $!";
+			print $fh $actual;
+			close $fh;
+			Test::More::pass("bootstrapped golden: ".$env->name.".yamls.txt");
+			Test::More::diag("wrote new golden: $golden_path (".length($actual)." bytes)");
+			return;
+		}
+
+		open my $fh, '<', $golden_path
+			or die "cannot read $golden_path: $!";
+		my $expected = do { local $/; <$fh> };
+		close $fh;
+
+		my $diff = _diff_yamls($actual, $expected);
+		if ($diff eq '') {
+			Test::More::pass("yamls order matches golden: ".$env->name);
+		} else {
+			Test::More::fail("yamls order differs from ".$env->name.".yamls.txt");
+			Test::More::diag($diff);
+		}
+	});
+}
+
+# _normalize_yamls_output - collapse "<kit>/<version>:" prefixes in
+# `genesis <env> yamls` output to "<kit>/<VERSION>:" so a version
+# bump of the kit doesn't produce a spurious diff against the
+# golden.  Loose match on the version token (anything up to the
+# first colon) covers semver, pre-release, and build-metadata
+# suffixes (3.2.0-rc.1, 3.2.999-dev, 3.2.0+build.abc).  The
+# "     local:" line at the tail has no version and passes through.
+sub _normalize_yamls_output {
+	my ($text) = @_;
+	# Strip ANSI CSI sequences (colors, attributes) first -- genesis
+	# emits them on stdout unconditionally, and their bytes would
+	# make the golden terminal-dependent.
+	$text =~ s/\e\[[0-9;]*m//g;
+	$text =~ s{^([^/\s]+)/[^:]+:}{$1/<VERSION>:}mg;
+	return $text;
+}
+
+# _diff_yamls - unified-diff of two chunks of normalized yamls
+# output.  Empty string means identical.  Uses Algorithm::Diff's
+# unified formatter with 3 lines of context (standard git diff
+# default) so the output is directly readable in a test failure
+# report.
+sub _diff_yamls {
+	my ($actual, $expected) = @_;
+	return '' if $actual eq $expected;
+	require Algorithm::Diff;
+	my @a = split /\n/, $expected, -1;
+	my @b = split /\n/, $actual,   -1;
+	my $out = "--- expected\n+++ actual\n";
+	my $sdiff = Algorithm::Diff::sdiff(\@a, \@b);
+	# Group runs into hunks; emit one hunk per contiguous non-'u' run
+	# with 3 lines of context on each side.
+	my $ctx = 3;
+	my ($i, @hunks) = (0);
+	while ($i < @$sdiff) {
+		if ($sdiff->[$i][0] eq 'u') { $i++; next }
+		# Start of a change hunk: back up to include context.
+		my $hs = $i - $ctx;  $hs = 0 if $hs < 0;
+		# Extend forward: keep going while we see changes or short 'u'
+		# runs (< 2*ctx) that would otherwise split into two hunks.
+		my $he = $i;
+		while ($he + 1 < @$sdiff) {
+			$he++;
+			if ($sdiff->[$he][0] eq 'u') {
+				my $u_run = 0;
+				my $probe = $he;
+				while ($probe < @$sdiff && $sdiff->[$probe][0] eq 'u') {
+					$u_run++; $probe++;
+				}
+				if ($probe >= @$sdiff || $u_run >= 2 * $ctx) {
+					$he += $ctx - 1;
+					$he = @$sdiff - 1 if $he >= @$sdiff;
+					last;
+				}
+				$he = $probe - 1;
+			}
+		}
+		push @hunks, [$hs, $he];
+		$i = $he + 1;
+	}
+	for my $h (@hunks) {
+		my ($hs, $he) = @$h;
+		my ($aln, $bln) = (0, 0);
+		my ($astart, $bstart);
+		for my $j ($hs .. $he) {
+			my $op = $sdiff->[$j][0];
+			$aln++ if $op ne '+';
+			$bln++ if $op ne '-';
+		}
+		$astart = 1 + scalar grep { $_->[0] ne '+' } @{$sdiff}[0 .. $hs - 1];
+		$bstart = 1 + scalar grep { $_->[0] ne '-' } @{$sdiff}[0 .. $hs - 1];
+		$out .= "\@\@ -$astart,$aln +$bstart,$bln \@\@\n";
+		for my $j ($hs .. $he) {
+			my ($op, $a, $b) = @{$sdiff->[$j]};
+			if    ($op eq 'u') { $out .= " $a\n" }
+			elsif ($op eq '-') { $out .= "-$a\n" }
+			elsif ($op eq '+') { $out .= "+$b\n" }
+			elsif ($op eq 'c') { $out .= "-$a\n+$b\n" }
+		}
+	}
+	return $out;
+}
 
 sub _copy_env_fixture {
 	my ($fx, $env, $workdir) = @_;

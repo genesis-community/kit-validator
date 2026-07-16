@@ -169,6 +169,32 @@ subtest 'genesis_manifest_cmd: env name is used in the subject position' => sub 
 	], 'manifest subject is deployments/<env>, not just <env>';
 };
 
+subtest 'genesis_yamls_cmd: mirrors manifest cmd shape without --type' => sub {
+	my $env = env(cloud_config => 'aws');
+	my $cmd = Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
+		env         => $env,
+		fixture_dir => '/kits/bosh/spec',
+	);
+	is_deeply $cmd, [
+		'genesis', "deployments/$ENV_NAME", 'yamls',
+		'-c', 'cloud=/kits/bosh/spec/cloud_configs/aws.yml',
+	], 'yamls cmd targets deployments/<env> and carries config flags';
+};
+
+subtest 'genesis_yamls_cmd: cpi stub plumbs through like manifest' => sub {
+	my $env = env(cloud_config => 'aws');
+	my $cmd = Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
+		env           => $env,
+		fixture_dir   => '/kits/bosh/spec',
+		cpi_stub_path => '/tmp/kv-wd/empty-cpi.yml',
+	);
+	is_deeply $cmd, [
+		'genesis', "deployments/$ENV_NAME", 'yamls',
+		'-c', 'cloud=/kits/bosh/spec/cloud_configs/aws.yml',
+		'-c', 'cpi=/tmp/kv-wd/empty-cpi.yml',
+	], 'yamls carries cpi stub when no env->cpi_config';
+};
+
 subtest 'bosh_int_cmd: manifest + vars-file only' => sub {
 	my $cmd = Kit::Validator::Runner::Cmd::bosh_int_cmd(
 		manifest_path  => '/tmp/manifest.yml',

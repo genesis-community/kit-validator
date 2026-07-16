@@ -1,0 +1,2 @@
+tiny/<VERSION>: manifests/tiny.yml
+           local: minimal.yml

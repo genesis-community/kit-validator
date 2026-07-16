@@ -11,6 +11,8 @@ use Kit::Validator qw/kit_dir test_env/;
 our @ISA       = ('Exporter');
 our @EXPORT_OK = qw/kit_dir test_env/;
 
+use constant MIN_GENESIS_VERSION => '3.2.0-rc.0';
+
 # One-shot sandbox state.
 my $INITIALIZED;
 our $SANDBOX_HOME;
@@ -25,8 +27,26 @@ sub import {
 	unless ($INITIALIZED) {
 		$INITIALIZED = 1;
 		_init_sandbox();
+		require Kit::Validator::Runner;
+		Kit::Validator::Runner::_require_genesis();
+		_check_genesis_version();
 	}
 	Exporter::export_to_level($class, 1, $class, @_);
+}
+
+sub _check_genesis_version {
+	require Genesis;
+	my $have = $Genesis::VERSION // '';
+	# "(development)" is the source-checkout sentinel; no semver to compare.
+	return if $have eq '(development)' || $have eq '';
+	return if Genesis::new_enough($have, MIN_GENESIS_VERSION);
+	die
+		"Kit::Validator::Spec: loaded Genesis $have is older than the\n".
+		"required floor ".MIN_GENESIS_VERSION.".  Kit-validator's assertions\n".
+		"depend on exodus-template fields that older Genesis doesn't emit.\n".
+		"\n".
+		"Point KIT_VALIDATOR_GENESIS (and/or GENESIS_LIB) at a newer\n".
+		"genesis binary + source checkout, or upgrade the genesis on \$PATH.\n";
 }
 
 # _init_sandbox - create a run-scoped $HOME so ~/.saferc, ~/.genesis,

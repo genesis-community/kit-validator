@@ -5,7 +5,7 @@ use ExtUtils::MakeMaker 6.48;
 WriteMakefile(
 	NAME             => 'Genesis::Kit::Validator',
 	AUTHOR           => 'Genesis Community <team@genesisproject.io>',
-	VERSION_FROM     => 'lib/Kit/Validator.pm',
+	VERSION_FROM     => 'lib/Genesis/Kit/Validator.pm',
 	ABSTRACT         => 'Perl spec-test framework for Genesis kits',
 	LICENSE          => 'mit',
 	MIN_PERL_VERSION => '5.20.0',
@@ -38,15 +38,15 @@ WriteMakefile(
 		resources   => {
 			repository => {
 				type => 'git',
-				url  => 'https://github.com/genesis-community/kit-validator.git',
-				web  => 'https://github.com/genesis-community/kit-validator',
+				url  => 'https://github.com/genesis-community/genesis-kit-validator.git',
+				web  => 'https://github.com/genesis-community/genesis-kit-validator',
 			},
 			bugtracker => {
-				web => 'https://github.com/genesis-community/kit-validator/issues',
+				web => 'https://github.com/genesis-community/genesis-kit-validator/issues',
 			},
 		},
 	},
 
 	dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz' },
-	clean => { FILES    => 'Kit-Validator-*' },
+	clean => { FILES    => 'Genesis-Kit-Validator-*' },
 );

@@ -1,4 +1,4 @@
-package Kit::Validator::Prune;
+package Genesis::Kit::Validator::Prune;
 use v5.20;
 use warnings;
 use Storable qw/dclone/;
@@ -68,12 +68,12 @@ __END__
 
 =head1 NAME
 
-Kit::Validator::Prune - Strip volatile keys from a manifest before diff
+Genesis::Kit::Validator::Prune - Strip volatile keys from a manifest before diff
 
 =head1 SYNOPSIS
 
-  use Kit::Validator::Prune;
-  my ($pruned, $bosh_vars) = Kit::Validator::Prune::prune_manifest(
+  use Genesis::Kit::Validator::Prune;
+  my ($pruned, $bosh_vars) = Genesis::Kit::Validator::Prune::prune_manifest(
       $manifest, {is_proto => 0}
   );
 

@@ -1,4 +1,4 @@
-package Kit::Validator::Bootstrap;
+package Genesis::Kit::Validator::Bootstrap;
 use v5.20;
 use warnings;
 use Storable qw/dclone/;
@@ -64,19 +64,19 @@ __END__
 
 =head1 NAME
 
-Kit::Validator::Bootstrap - Tokenize raw exports for spec/vault + spec/credhub stubs
+Genesis::Kit::Validator::Bootstrap - Tokenize raw exports for spec/vault + spec/credhub stubs
 
 =head1 SYNOPSIS
 
-  use Kit::Validator::Bootstrap;
+  use Genesis::Kit::Validator::Bootstrap;
 
-  my $vault_stub = Kit::Validator::Bootstrap::tokenize_vault_export(
+  my $vault_stub = Genesis::Kit::Validator::Bootstrap::tokenize_vault_export(
       $safe_export_hash,
       env_name => 'aws',
       kit_name => 'bosh',
   );
 
-  my $credhub_stub = Kit::Validator::Bootstrap::tokenize_credhub_vars(
+  my $credhub_stub = Genesis::Kit::Validator::Bootstrap::tokenize_credhub_vars(
       $bosh_vars_store_hash,
   );
 

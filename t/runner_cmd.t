@@ -4,8 +4,8 @@ use warnings;
 use Test::More;
 use Test::Deep;
 
-use_ok 'Kit::Validator::Environment';
-use_ok 'Kit::Validator::Runner::Cmd';
+use_ok 'Genesis::Kit::Validator::Environment';
+use_ok 'Genesis::Kit::Validator::Runner::Cmd';
 
 # The Cmd builders test 'genesis' argv[0] by default.  When the
 # suite runs with KIT_VALIDATOR_GENESIS=g32 (as the integration
@@ -31,11 +31,11 @@ my $VAULT    = 'local_vault_kv-aws_1234';
 
 sub env {
 	my (%o) = @_;
-	Kit::Validator::Environment->new(name => $ENV_NAME, %o);
+	Genesis::Kit::Validator::Environment->new(name => $ENV_NAME, %o);
 }
 
 subtest 'genesis_init_cmd: minimal fields' => sub {
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_init_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_init_cmd(
 		kit_name  => $KIT_NAME,
 		kit_dir   => $KIT_DIR,
 		workdir   => $WORKDIR,
@@ -53,7 +53,7 @@ subtest 'genesis_init_cmd: minimal fields' => sub {
 
 subtest 'genesis_check_cmd: no cloud/runtime configs' => sub {
 	my $env = env();
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
 		env      => $env,
 		fixture_dir => '/kits/bosh/spec',
 	);
@@ -68,7 +68,7 @@ subtest 'genesis_check_cmd: no cloud/runtime configs' => sub {
 
 subtest 'genesis_check_cmd: cloud config only' => sub {
 	my $env = env(cloud_config => 'aws');
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
 		env         => $env,
 		fixture_dir => '/kits/bosh/spec',
 	);
@@ -84,7 +84,7 @@ subtest 'genesis_check_cmd: cloud config only' => sub {
 
 subtest 'genesis_check_cmd: cloud + runtime configs' => sub {
 	my $env = env(cloud_config => 'aws', runtime_config => 'dns');
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
 		env         => $env,
 		fixture_dir => '/kits/bosh/spec',
 	);
@@ -105,7 +105,7 @@ subtest 'genesis_check_cmd: cpi stub path adds -c cpi=<path>' => sub {
 	# reaches for the parent BOSH director and bails.  The Runner writes an
 	# empty stub into the workdir and passes it via cpi_stub_path.
 	my $env = env(cloud_config => 'aws');
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
 		env           => $env,
 		fixture_dir   => '/kits/bosh/spec',
 		cpi_stub_path => '/tmp/kv-wd/empty-cpi.yml',
@@ -125,7 +125,7 @@ subtest 'genesis_check_cmd: env->cpi_config overrides the stub' => sub {
 	# Opt-in per-env CPI fixture wins over the workdir stub -- used to
 	# exercise multi-CPI configs, IAM profile variants, etc.
 	my $env = env(cloud_config => 'aws', cpi_config => 'aws-multi-iam');
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
 		env           => $env,
 		fixture_dir   => '/kits/bosh/spec',
 		cpi_stub_path => '/tmp/kv-wd/empty-cpi.yml',
@@ -143,7 +143,7 @@ subtest 'genesis_check_cmd: env->cpi_config overrides the stub' => sub {
 
 subtest 'genesis_manifest_cmd: cpi stub also plumbs through' => sub {
 	my $env = env(cloud_config => 'aws');
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
 		env           => $env,
 		fixture_dir   => '/kits/bosh/spec',
 		cpi_stub_path => '/tmp/kv-wd/empty-cpi.yml',
@@ -158,7 +158,7 @@ subtest 'genesis_manifest_cmd: cpi stub also plumbs through' => sub {
 
 subtest 'genesis_manifest_cmd: env name is used in the subject position' => sub {
 	my $env = env(cloud_config => 'aws');
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
 		env         => $env,
 		fixture_dir => '/kits/bosh/spec',
 	);
@@ -171,7 +171,7 @@ subtest 'genesis_manifest_cmd: env name is used in the subject position' => sub 
 
 subtest 'genesis_yamls_cmd: mirrors manifest cmd shape without --type' => sub {
 	my $env = env(cloud_config => 'aws');
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
 		env         => $env,
 		fixture_dir => '/kits/bosh/spec',
 	);
@@ -183,7 +183,7 @@ subtest 'genesis_yamls_cmd: mirrors manifest cmd shape without --type' => sub {
 
 subtest 'genesis_yamls_cmd: cpi stub plumbs through like manifest' => sub {
 	my $env = env(cloud_config => 'aws');
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
 		env           => $env,
 		fixture_dir   => '/kits/bosh/spec',
 		cpi_stub_path => '/tmp/kv-wd/empty-cpi.yml',
@@ -196,7 +196,7 @@ subtest 'genesis_yamls_cmd: cpi stub plumbs through like manifest' => sub {
 };
 
 subtest 'bosh_int_cmd: manifest + vars-file only' => sub {
-	my $cmd = Kit::Validator::Runner::Cmd::bosh_int_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::bosh_int_cmd(
 		manifest_path  => '/tmp/manifest.yml',
 		bosh_vars_path => '/tmp/bosh-vars.yml',
 	);
@@ -210,7 +210,7 @@ subtest 'bosh_int_cmd: manifest + vars-file only' => sub {
 };
 
 subtest 'bosh_int_cmd: with credhub_variables and credhub stub' => sub {
-	my $cmd = Kit::Validator::Runner::Cmd::bosh_int_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::bosh_int_cmd(
 		manifest_path       => '/tmp/manifest.yml',
 		bosh_vars_path      => '/tmp/bosh-vars.yml',
 		credhub_vars_path   => '/tmp/credhub-vars.yml',
@@ -228,7 +228,7 @@ subtest 'bosh_int_cmd: with credhub_variables and credhub stub' => sub {
 };
 
 subtest 'spruce_diff_cmd' => sub {
-	my $cmd = Kit::Validator::Runner::Cmd::spruce_diff_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::spruce_diff_cmd(
 		golden_path => '/kits/bosh/spec/results/aws.yml',
 		actual_path => '/tmp/actual.yml',
 	);
@@ -241,7 +241,7 @@ subtest 'spruce_diff_cmd' => sub {
 
 subtest 'genesis_check_secrets_cmd' => sub {
 	my $env = env();
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env);
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env);
 	is_deeply $cmd, [
 		'genesis', 'check-secrets',
 		'--no-color', '-lm', '-v',
@@ -253,7 +253,7 @@ subtest 'genesis_check_secrets_cmd' => sub {
 
 subtest 'genesis_add_secrets_cmd' => sub {
 	my $env = env();
-	my $cmd = Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env);
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env);
 	is_deeply $cmd, [
 		'genesis', 'add-secrets',
 		'--cwd', 'deployments/',
@@ -263,7 +263,7 @@ subtest 'genesis_add_secrets_cmd' => sub {
 
 subtest 'testing_env: builds the GENESIS_TESTING_* env vars for genesis calls' => sub {
 	my $env = env(cpi => 'aws');
-	my $vars = Kit::Validator::Runner::Cmd::testing_env(env => $env);
+	my $vars = Genesis::Kit::Validator::Runner::Cmd::testing_env(env => $env);
 	cmp_deeply $vars, {
 		GENESIS_TESTING_BOSH_CPI                     => 'aws',
 		GENESIS_TESTING_CHECK_SECRETS_PRESENCE_ONLY  => 'true',
@@ -274,7 +274,7 @@ subtest 'testing_env: builds the GENESIS_TESTING_* env vars for genesis calls' =
 
 subtest 'testing_env: empty cpi still emits the key (blank)' => sub {
 	my $env = env();
-	my $vars = Kit::Validator::Runner::Cmd::testing_env(env => $env);
+	my $vars = Genesis::Kit::Validator::Runner::Cmd::testing_env(env => $env);
 	is $vars->{GENESIS_TESTING_BOSH_CPI}, '',
 		'blank cpi -> blank value (parity with testkit default)';
 };
@@ -282,14 +282,14 @@ subtest 'testing_env: empty cpi still emits the key (blank)' => sub {
 subtest 'KIT_VALIDATOR_GENESIS overrides argv[0] for every genesis-* cmd' => sub {
 	local $ENV{KIT_VALIDATOR_GENESIS} = 'g32';
 	my $env = env(cloud_config => 'aws');
-	is Kit::Validator::Runner::Cmd::genesis_init_cmd(
+	is Genesis::Kit::Validator::Runner::Cmd::genesis_init_cmd(
 		kit_name => 'x', kit_dir => 'k', workdir => 'w', vault => 'v')->[0], 'g32';
-	is Kit::Validator::Runner::Cmd::genesis_check_cmd(
+	is Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
 		env => $env, fixture_dir => '/x')->[0], 'g32';
-	is Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
+	is Genesis::Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
 		env => $env, fixture_dir => '/x')->[0], 'g32';
-	is Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env)->[0], 'g32';
-	is Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env)->[0], 'g32';
+	is Genesis::Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env)->[0], 'g32';
+	is Genesis::Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env)->[0], 'g32';
 };
 
 done_testing;

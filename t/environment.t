@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use Test::More;
 
-use_ok 'Kit::Validator::Environment';
+use_ok 'Genesis::Kit::Validator::Environment';
 
 # Environment field defaults + coercion.  The object is a value carrier
 # for the runner: fields describe which fixture files to load and how
@@ -11,15 +11,15 @@ use_ok 'Kit::Validator::Environment';
 # fields and strict about the one required field (name).
 
 subtest 'name is required' => sub {
-	eval { Kit::Validator::Environment->new() };
+	eval { Genesis::Kit::Validator::Environment->new() };
 	like $@, qr/name is required/, 'no args -> die';
 
-	eval { Kit::Validator::Environment->new(name => '') };
+	eval { Genesis::Kit::Validator::Environment->new(name => '') };
 	like $@, qr/name is required/, 'empty name -> die';
 };
 
 subtest 'minimal env: name only, sensible defaults' => sub {
-	my $env = Kit::Validator::Environment->new(name => 'aws');
+	my $env = Genesis::Kit::Validator::Environment->new(name => 'aws');
 	is $env->name, 'aws',                'name preserved';
 	is $env->cloud_config,      undef,   'cloud_config defaults to undef';
 	is $env->runtime_config,    undef,   'runtime_config defaults to undef';
@@ -33,7 +33,7 @@ subtest 'minimal env: name only, sensible defaults' => sub {
 };
 
 subtest 'full env: all fields settable' => sub {
-	my $env = Kit::Validator::Environment->new(
+	my $env = Genesis::Kit::Validator::Environment->new(
 		name           => 'aws',
 		cloud_config   => 'aws',
 		runtime_config => 'dns',
@@ -63,7 +63,7 @@ subtest 'full env: all fields settable' => sub {
 
 subtest 'output_matchers keys are validated' => sub {
 	eval {
-		Kit::Validator::Environment->new(
+		Genesis::Kit::Validator::Environment->new(
 			name            => 'x',
 			output_matchers => { bogus_matcher => qr/./ },
 		);
@@ -74,7 +74,7 @@ subtest 'output_matchers keys are validated' => sub {
 
 subtest 'output_matchers values must be Regexp' => sub {
 	eval {
-		Kit::Validator::Environment->new(
+		Genesis::Kit::Validator::Environment->new(
 			name            => 'x',
 			output_matchers => { genesis_check => 'string not regex' },
 		);

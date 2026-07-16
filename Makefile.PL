@@ -3,7 +3,7 @@ use warnings;
 use ExtUtils::MakeMaker 6.48;
 
 WriteMakefile(
-	NAME             => 'Kit::Validator',
+	NAME             => 'Genesis::Kit::Validator',
 	AUTHOR           => 'Genesis Community <team@genesisproject.io>',
 	VERSION_FROM     => 'lib/Kit/Validator.pm',
 	ABSTRACT         => 'Perl spec-test framework for Genesis kits',

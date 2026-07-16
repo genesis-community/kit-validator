@@ -1,4 +1,4 @@
-package Kit::Validator::Runner::Cmd;
+package Genesis::Kit::Validator::Runner::Cmd;
 use v5.20;
 use warnings;
 
@@ -137,13 +137,13 @@ __END__
 
 =head1 NAME
 
-Kit::Validator::Runner::Cmd - Pure command builders for the runner
+Genesis::Kit::Validator::Runner::Cmd - Pure command builders for the runner
 
 =head1 SYNOPSIS
 
-  use Kit::Validator::Runner::Cmd;
+  use Genesis::Kit::Validator::Runner::Cmd;
 
-  my $cmd = Kit::Validator::Runner::Cmd::genesis_check_cmd(
+  my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
       env         => $env,
       fixture_dir => '/kits/bosh/spec',
   );

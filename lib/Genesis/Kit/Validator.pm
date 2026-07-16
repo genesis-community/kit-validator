@@ -1,4 +1,4 @@
-package Kit::Validator;
+package Genesis::Kit::Validator;
 use v5.20;
 use warnings;
 
@@ -20,9 +20,9 @@ sub kit_dir {
 }
 
 sub test_env {
-	require Kit::Validator::Environment;
-	require Kit::Validator::Runner;
-	my $env = Kit::Validator::Environment->new(@_);
+	require Genesis::Kit::Validator::Environment;
+	require Genesis::Kit::Validator::Runner;
+	my $env = Genesis::Kit::Validator::Environment->new(@_);
 	push @ENVIRONMENTS, $env;
 
 	# KIT_VALIDATOR_FOCUS is a colon-separated allowlist of env names.
@@ -33,7 +33,7 @@ sub test_env {
 		return $env unless $allow{$env->name};
 	}
 
-	Kit::Validator::Runner->run($env, kit_dir => $KIT_DIR);
+	Genesis::Kit::Validator::Runner->run($env, kit_dir => $KIT_DIR);
 	return $env;
 }
 
@@ -43,12 +43,12 @@ __END__
 
 =head1 NAME
 
-Kit::Validator - Perl spec-test framework for Genesis kits
+Genesis::Kit::Validator - Perl spec-test framework for Genesis kits
 
 =head1 SYNOPSIS
 
   use lib $ENV{KIT_VALIDATOR_LIB};
-  use Kit::Validator qw/kit_dir test_env/;
+  use Genesis::Kit::Validator qw/kit_dir test_env/;
 
   kit_dir('.');
   test_env(name => 'aws',       cloud_config => 'aws');
@@ -56,7 +56,7 @@ Kit::Validator - Perl spec-test framework for Genesis kits
 
 =head1 DESCRIPTION
 
-Kit::Validator replaces the Ginkgo/Go test harness that Genesis kits
+Genesis::Kit::Validator replaces the Ginkgo/Go test harness that Genesis kits
 have historically used (via C<github.com/genesis-community/testkit>).
 It runs entirely in Perl, leveraging the C<Genesis::*> and C<Service::*>
 libraries already available on kit CI images.

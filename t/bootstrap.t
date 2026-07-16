@@ -4,7 +4,7 @@ use warnings;
 use Test::More;
 use Test::Deep;
 
-use_ok 'Kit::Validator::Bootstrap';
+use_ok 'Genesis::Kit::Validator::Bootstrap';
 
 # Bootstrap is a set of pure functions that turn raw safe-export /
 # bosh-vars-store output into the tokenized `<!{meta.vault}/...!>` and
@@ -14,19 +14,19 @@ use_ok 'Kit::Validator::Bootstrap';
 #   - bosh.go:49-71, 86-100  (credhub token rewrite)
 
 subtest 'env_vault_base: single-segment env' => sub {
-	is Kit::Validator::Bootstrap::env_vault_base('aws', 'bosh'),
+	is Genesis::Kit::Validator::Bootstrap::env_vault_base('aws', 'bosh'),
 	   'secret/aws/bosh',
 	   'env=aws, kit=bosh -> secret/aws/bosh';
 };
 
 subtest 'env_vault_base: dashed env -> slashed path' => sub {
-	is Kit::Validator::Bootstrap::env_vault_base('us-east-prod', 'bosh'),
+	is Genesis::Kit::Validator::Bootstrap::env_vault_base('us-east-prod', 'bosh'),
 	   'secret/us/east/prod/bosh',
 	   'dashes in env name become path separators';
 };
 
 subtest 'tokenize_vault_export: single path, single key' => sub {
-	my $out = Kit::Validator::Bootstrap::tokenize_vault_export(
+	my $out = Genesis::Kit::Validator::Bootstrap::tokenize_vault_export(
 		{'secret/aws/bosh/admin' => {password => 'realsecret'}},
 		env_name => 'aws',
 		kit_name => 'bosh',
@@ -39,7 +39,7 @@ subtest 'tokenize_vault_export: single path, single key' => sub {
 };
 
 subtest 'tokenize_vault_export: multi-segment subpath' => sub {
-	my $out = Kit::Validator::Bootstrap::tokenize_vault_export(
+	my $out = Genesis::Kit::Validator::Bootstrap::tokenize_vault_export(
 		{'secret/aws/bosh/blobstore/agent' => {password => 'x'}},
 		env_name => 'aws',
 		kit_name => 'bosh',
@@ -50,7 +50,7 @@ subtest 'tokenize_vault_export: multi-segment subpath' => sub {
 };
 
 subtest 'tokenize_vault_export: multiple keys under one path' => sub {
-	my $out = Kit::Validator::Bootstrap::tokenize_vault_export(
+	my $out = Genesis::Kit::Validator::Bootstrap::tokenize_vault_export(
 		{'secret/aws/bosh/certs/ca' => {
 			certificate => 'PEM',
 			key         => 'PEM',
@@ -69,7 +69,7 @@ subtest 'tokenize_vault_export: multiple keys under one path' => sub {
 };
 
 subtest 'tokenize_vault_export: dashed env base is stripped correctly' => sub {
-	my $out = Kit::Validator::Bootstrap::tokenize_vault_export(
+	my $out = Genesis::Kit::Validator::Bootstrap::tokenize_vault_export(
 		{'secret/us/east/prod/bosh/admin' => {password => 'x'}},
 		env_name => 'us-east-prod',
 		kit_name => 'bosh',
@@ -80,7 +80,7 @@ subtest 'tokenize_vault_export: dashed env base is stripped correctly' => sub {
 };
 
 subtest 'tokenize_vault_export: path outside vault base is left untouched (defensive)' => sub {
-	my $out = Kit::Validator::Bootstrap::tokenize_vault_export(
+	my $out = Genesis::Kit::Validator::Bootstrap::tokenize_vault_export(
 		{
 			'secret/aws/bosh/admin' => {password => 'x'},
 			'secret/shared/config'  => {url => 'https://vault'},
@@ -96,7 +96,7 @@ subtest 'tokenize_vault_export: path outside vault base is left untouched (defen
 };
 
 subtest 'tokenize_credhub_vars: scalar variable' => sub {
-	my $out = Kit::Validator::Bootstrap::tokenize_credhub_vars({
+	my $out = Genesis::Kit::Validator::Bootstrap::tokenize_credhub_vars({
 		blobstore_admin_users_password => 'generated-password',
 	});
 	cmp_deeply $out, {
@@ -106,7 +106,7 @@ subtest 'tokenize_credhub_vars: scalar variable' => sub {
 };
 
 subtest 'tokenize_credhub_vars: certificate variable with sub-keys' => sub {
-	my $out = Kit::Validator::Bootstrap::tokenize_credhub_vars({
+	my $out = Genesis::Kit::Validator::Bootstrap::tokenize_credhub_vars({
 		application_ca => {
 			ca          => '---PEM---',
 			certificate => '---PEM---',
@@ -123,7 +123,7 @@ subtest 'tokenize_credhub_vars: certificate variable with sub-keys' => sub {
 };
 
 subtest 'tokenize_credhub_vars: mixed scalar + hash variables' => sub {
-	my $out = Kit::Validator::Bootstrap::tokenize_credhub_vars({
+	my $out = Genesis::Kit::Validator::Bootstrap::tokenize_credhub_vars({
 		blobstore_secret => 'raw',
 		router_ca        => {ca => 'PEM', certificate => 'PEM'},
 	});
@@ -135,14 +135,14 @@ subtest 'tokenize_credhub_vars: mixed scalar + hash variables' => sub {
 subtest 'tokenize_credhub_vars: input is not mutated' => sub {
 	my $vars = {sec => 'x', ca => {c => 'PEM'}};
 	my $vars_before = {sec => 'x', ca => {c => 'PEM'}};
-	Kit::Validator::Bootstrap::tokenize_credhub_vars($vars);
+	Genesis::Kit::Validator::Bootstrap::tokenize_credhub_vars($vars);
 	cmp_deeply $vars, $vars_before, 'input hash preserved';
 };
 
 subtest 'tokenize_vault_export: input is not mutated' => sub {
 	my $exp = {'secret/aws/bosh/admin' => {password => 'x'}};
 	my $exp_before = {'secret/aws/bosh/admin' => {password => 'x'}};
-	Kit::Validator::Bootstrap::tokenize_vault_export(
+	Genesis::Kit::Validator::Bootstrap::tokenize_vault_export(
 		$exp, env_name => 'aws', kit_name => 'bosh'
 	);
 	cmp_deeply $exp, $exp_before, 'input hash preserved';

@@ -1,4 +1,4 @@
-package Kit::Validator::Environment;
+package Genesis::Kit::Validator::Environment;
 use v5.20;
 use warnings;
 
@@ -16,23 +16,23 @@ sub new {
 	my ($class, %opts) = @_;
 
 	my $name = $opts{name};
-	die "Kit::Validator::Environment: name is required\n"
+	die "Genesis::Kit::Validator::Environment: name is required\n"
 		unless defined $name && length $name;
 	# Semantic validation of the env name (character set, path-traversal
-	# safety, etc.) happens in Kit::Validator::Runner where Genesis::Env
+	# safety, etc.) happens in Genesis::Kit::Validator::Runner where Genesis::Env
 	# is already loaded and its _env_name_errors is DRY-callable.
 
 	my $ops = $opts{ops} // [];
-	die "Kit::Validator::Environment: ops must be an arrayref\n"
+	die "Genesis::Kit::Validator::Environment: ops must be an arrayref\n"
 		unless ref $ops eq 'ARRAY';
 
 	my $matchers = $opts{output_matchers} // {};
-	die "Kit::Validator::Environment: output_matchers must be a hashref\n"
+	die "Genesis::Kit::Validator::Environment: output_matchers must be a hashref\n"
 		unless ref $matchers eq 'HASH';
 	for my $k (keys %$matchers) {
-		die "Kit::Validator::Environment: unknown output_matcher: $k\n"
+		die "Genesis::Kit::Validator::Environment: unknown output_matcher: $k\n"
 			unless $OUTPUT_MATCHER_KEYS{$k};
-		die "Kit::Validator::Environment: output_matcher $k must be a Regexp\n"
+		die "Genesis::Kit::Validator::Environment: output_matcher $k must be a Regexp\n"
 			unless ref $matchers->{$k} eq 'Regexp';
 	}
 
@@ -67,11 +67,11 @@ __END__
 
 =head1 NAME
 
-Kit::Validator::Environment - Immutable spec of one test environment
+Genesis::Kit::Validator::Environment - Immutable spec of one test environment
 
 =head1 SYNOPSIS
 
-  my $env = Kit::Validator::Environment->new(
+  my $env = Genesis::Kit::Validator::Environment->new(
     name           => 'aws',
     cloud_config   => 'aws',
     runtime_config => 'dns',

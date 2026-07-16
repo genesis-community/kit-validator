@@ -1,12 +1,12 @@
-package Kit::Validator::Runner;
+package Genesis::Kit::Validator::Runner;
 use v5.20;
 use warnings;
 
-use Kit::Validator::Environment;
-use Kit::Validator::Fixture;
-use Kit::Validator::Prune;
-use Kit::Validator::Bootstrap;
-use Kit::Validator::Runner::Cmd;
+use Genesis::Kit::Validator::Environment;
+use Genesis::Kit::Validator::Fixture;
+use Genesis::Kit::Validator::Prune;
+use Genesis::Kit::Validator::Bootstrap;
+use Genesis::Kit::Validator::Runner::Cmd;
 
 use File::Temp qw/tempdir/;
 use File::Basename qw/basename/;
@@ -69,7 +69,7 @@ sub _require_genesis {
 	unless (_extract_is_current($binary, $genesis_home)) {
 		my $rc = system("$binary --version >/dev/null 2>&1");
 		die
-			"Kit::Validator::Runner: could not invoke '$binary' to prepare "
+			"Genesis::Kit::Validator::Runner: could not invoke '$binary' to prepare "
 			."the Genesis Perl lib.\n".
 			"Genesis binary exited with status $rc.\n".
 			"Either put a genesis binary on PATH, set "
@@ -79,7 +79,7 @@ sub _require_genesis {
 			if $rc != 0;
 	}
 
-	die "Kit::Validator::Runner: Genesis lib directory not present at "
+	die "Genesis::Kit::Validator::Runner: Genesis lib directory not present at "
 		."$genesis_lib after invoking '$binary'.\n"
 		unless -d $genesis_lib;
 
@@ -87,7 +87,7 @@ sub _require_genesis {
 	lib->import($genesis_lib);
 
 	eval { require Genesis; require Service::Vault::Local; 1 } or die
-		"Kit::Validator::Runner: Genesis modules could not be loaded "
+		"Genesis::Kit::Validator::Runner: Genesis modules could not be loaded "
 		."from $genesis_lib after successful extract.\nUnderlying error: $@\n";
 	$GENESIS_LOADED = 1;
 }
@@ -162,7 +162,7 @@ sub run {
 	my ($class, $env, %opts) = @_;
 
 	my $kit_dir = $opts{kit_dir}
-		or die "Kit::Validator::Runner->run: kit_dir is required\n";
+		or die "Genesis::Kit::Validator::Runner->run: kit_dir is required\n";
 
 	# Late-load Test::More so the module can be `use`d in contexts that
 	# never call ->run (e.g. inline docs, package_loaded checks).
@@ -189,16 +189,16 @@ sub _execute {
 	# about to build under $ENV{HOME}.
 	require Genesis::Env;
 	if (my $err = Genesis::Env::_env_name_errors($env->name)) {
-		die "Kit::Validator::Runner: invalid env name '".$env->name."':\n$err";
+		die "Genesis::Kit::Validator::Runner: invalid env name '".$env->name."':\n$err";
 	}
 
 	my $kit_dir     = $opts{kit_dir};
 	my $kit_name    = _detect_kit_name($kit_dir);
 	my $fixture_dir = "$kit_dir/spec";
-	my $fx          = Kit::Validator::Fixture->new(kit_dir => $kit_dir);
+	my $fx          = Genesis::Kit::Validator::Fixture->new(kit_dir => $kit_dir);
 
 	# 1. Ephemeral per-env workdir as a subdirectory of the
-	# run-scoped sandbox HOME (set up by Kit::Validator::Spec at
+	# run-scoped sandbox HOME (set up by Genesis::Kit::Validator::Spec at
 	# load time -- see that module's SANDBOX MODEL section).  HOME
 	# itself is not rescoped here; every env in the run shares the
 	# same .saferc and .genesis under $ENV{HOME}, which is exactly
@@ -206,7 +206,7 @@ sub _execute {
 	# local vault.
 	#
 	# The workdir lives under $HOME rather than in a sibling /tmp
-	# dir so a single CLEANUP -- Kit::Validator::Spec's sandbox
+	# dir so a single CLEANUP -- Genesis::Kit::Validator::Spec's sandbox
 	# tempdir -- handles removal on interpreter exit.  No per-env
 	# File::Temp handles racing at exit time.
 	my $workdir = tempdir(
@@ -222,16 +222,16 @@ sub _execute {
 
 	# 3. Testing-mode env vars carried into every genesis subcommand.
 	# Git identity comes from GIT_AUTHOR_NAME/EMAIL set once by
-	# Kit::Validator::Spec at load time -- see that module's
+	# Genesis::Kit::Validator::Spec at load time -- see that module's
 	# SANDBOX MODEL section.
-	local %ENV = (%ENV, %{Kit::Validator::Runner::Cmd::testing_env(env => $env)});
+	local %ENV = (%ENV, %{Genesis::Kit::Validator::Runner::Cmd::testing_env(env => $env)});
 
 	# 4. genesis init in the workdir, linking against the kit under test.
 	# Pass the vault's URL, not its alias: Service::Vault::Remote->find
 	# keys lookup on URL, and passing the alias name produces the opaque
 	# "Can't call method 'connect_and_validate' on undef" downstream.
 	_run_cmd(
-		Kit::Validator::Runner::Cmd::genesis_init_cmd(
+		Genesis::Kit::Validator::Runner::Cmd::genesis_init_cmd(
 			kit_name => $kit_name,
 			kit_dir  => $kit_dir,
 			workdir  => $workdir,
@@ -272,7 +272,7 @@ sub _execute {
 
 	# 10. genesis check with output_matchers awareness.
 	my $check_out = _run_genesis_step(
-		cmd       => Kit::Validator::Runner::Cmd::genesis_check_cmd(
+		cmd       => Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
 			env => $env, fixture_dir => $fixture_dir,
 			cpi_stub_path => $cpi_stub_path),
 		matcher   => $env->output_matchers->{genesis_check},
@@ -292,7 +292,7 @@ sub _execute {
 
 	# 12. genesis manifest with output_matchers awareness.
 	my $manifest_yaml = _run_genesis_step(
-		cmd       => Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
+		cmd       => Genesis::Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
 			env => $env, fixture_dir => $fixture_dir,
 			cpi_stub_path => $cpi_stub_path),
 		matcher   => $env->output_matchers->{genesis_manifest},
@@ -309,7 +309,7 @@ sub _execute {
 	my $manifest = Genesis::load_yaml($manifest_yaml);
 	my $is_proto = _env_has_proto_feature($env, $workdir);
 	my ($pruned, $bosh_vars)
-		= Kit::Validator::Prune::prune_manifest($manifest, {is_proto => $is_proto});
+		= Genesis::Kit::Validator::Prune::prune_manifest($manifest, {is_proto => $is_proto});
 
 	# 13. Credhub-stub bootstrap.
 	_bootstrap_credhub_stub_if_missing($fx, $env, $pruned, $workdir);
@@ -362,11 +362,11 @@ sub _detect_kit_name {
 	# spruce-shell helper -- avoids a hard dep on YAML::PP that
 	# Genesis itself has already opted out of.
 	my $kit_yml = "$kit_dir/kit.yml";
-	die "Kit::Validator::Runner: no kit.yml at $kit_yml\n"
+	die "Genesis::Kit::Validator::Runner: no kit.yml at $kit_yml\n"
 		unless -f $kit_yml;
 	my $kit = Genesis::load_yaml_file($kit_yml);
 	my $name = $kit->{name}
-		or die "Kit::Validator::Runner: kit.yml has no 'name'\n";
+		or die "Genesis::Kit::Validator::Runner: kit.yml has no 'name'\n";
 	return $name;
 }
 
@@ -375,15 +375,15 @@ sub _shutdown_guard {
 	# Returns a scope-scoped guard: a blessed hashref whose DESTROY
 	# shuts down the local vault, ensuring cleanup on both normal
 	# return and die().
-	return bless {vault => $vault}, 'Kit::Validator::Runner::_Guard';
+	return bless {vault => $vault}, 'Genesis::Kit::Validator::Runner::_Guard';
 }
 
-package Kit::Validator::Runner::_Guard;
+package Genesis::Kit::Validator::Runner::_Guard;
 sub DESTROY {
 	my ($self) = @_;
 	eval { $self->{vault}->shutdown } if $self->{vault};
 }
-package Kit::Validator::Runner;
+package Genesis::Kit::Validator::Runner;
 
 # _run_yamls_diff_step - invoke `genesis <env> yamls`, normalize
 # the kit-version tokens, and diff against spec/results/<env>.yamls.txt.
@@ -402,7 +402,7 @@ sub _run_yamls_diff_step {
 	require Test::More;
 	Test::More::subtest("yamls: ".$env->name => sub {
 		my ($out, $rc, $err) = _run_cmd(
-			Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
+			Genesis::Kit::Validator::Runner::Cmd::genesis_yamls_cmd(
 				env => $env,
 				fixture_dir => $o{fixture_dir},
 				cpi_stub_path => $o{cpi_stub_path},
@@ -622,7 +622,7 @@ sub _bootstrap_vault_cache_if_missing {
 	# CA overrides, etc.).  Everything else (random passwords, self-
 	# signed certs, etc.) genesis will generate via add-secrets.
 	my $checksecrets = _run_cmd(
-		Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env),
+		Genesis::Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env),
 		stderr => '&1',
 	);
 	# _run_cmd returns whatever Genesis::run returns; when it's scalar,
@@ -639,13 +639,13 @@ sub _bootstrap_vault_cache_if_missing {
 
 	# add-secrets generates every non-provided secret.
 	_run_cmd(
-		Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env),
+		Genesis::Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env),
 		onfailure => "genesis add-secrets failed for ".$env->name,
 	);
 
 	# Export everything under secret/<env-with-slashes>/<kit>/ and
 	# tokenize the leaves to `<!{meta.vault}/<sub>:<key>!>`.
-	my $vault_base = Kit::Validator::Bootstrap::env_vault_base(
+	my $vault_base = Genesis::Kit::Validator::Bootstrap::env_vault_base(
 		$env->name, $kit_name);
 	my $export_json = _run_cmd(
 		['safe', 'export', $vault_base],
@@ -656,7 +656,7 @@ sub _bootstrap_vault_cache_if_missing {
 	require Genesis;
 	my $export = Genesis::load_json($export_json // '{}');
 	$export = {} unless ref($export) eq 'HASH';
-	my $tokenized = Kit::Validator::Bootstrap::tokenize_vault_export(
+	my $tokenized = Genesis::Kit::Validator::Bootstrap::tokenize_vault_export(
 		$export,
 		env_name => $env->name,
 		kit_name => $kit_name,
@@ -777,7 +777,7 @@ sub _bootstrap_credhub_stub_if_missing {
 	# <!{credhub}:<var>.<subkey>!> per subkey.  Bootstrap has this.
 	my $store = Genesis::load_yaml_file($store_path) || {};
 	return unless ref($store) eq 'HASH' && keys %$store;
-	my $tokenized = Kit::Validator::Bootstrap::tokenize_credhub_vars($store);
+	my $tokenized = Genesis::Kit::Validator::Bootstrap::tokenize_credhub_vars($store);
 	$fx->write('credhub', $env->name, Genesis::to_yaml($tokenized));
 }
 
@@ -813,7 +813,7 @@ sub _interpolate {
 		@credhub_stub = ($fx->path('credhub', $env->name));
 	}
 
-	my $cmd = Kit::Validator::Runner::Cmd::bosh_int_cmd(
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::bosh_int_cmd(
 		manifest_path      => $mpath,
 		bosh_vars_path     => $vpath,
 		credhub_vars_path  => $credhub_vars[0],
@@ -847,7 +847,7 @@ sub _compare_or_bootstrap_golden {
 
 	my $golden = $fx->path('results', $env->name);
 	my ($out, $rc, $err) = _run_cmd(
-		Kit::Validator::Runner::Cmd::spruce_diff_cmd(
+		Genesis::Kit::Validator::Runner::Cmd::spruce_diff_cmd(
 			golden_path => $golden,
 			actual_path => $actual,
 		),
@@ -875,12 +875,12 @@ __END__
 
 =head1 NAME
 
-Kit::Validator::Runner - Per-environment orchestrator
+Genesis::Kit::Validator::Runner - Per-environment orchestrator
 
 =head1 SYNOPSIS
 
-  use Kit::Validator::Runner;
-  Kit::Validator::Runner->run($env, kit_dir => '.');
+  use Genesis::Kit::Validator::Runner;
+  Genesis::Kit::Validator::Runner->run($env, kit_dir => '.');
 
 =head1 DESCRIPTION
 

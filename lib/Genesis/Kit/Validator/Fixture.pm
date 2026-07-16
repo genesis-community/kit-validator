@@ -1,4 +1,4 @@
-package Kit::Validator::Fixture;
+package Genesis::Kit::Validator::Fixture;
 use v5.20;
 use warnings;
 
@@ -8,9 +8,9 @@ use File::Path qw/make_path/;
 sub new {
 	my ($class, %opts) = @_;
 	my $kit_dir = $opts{kit_dir};
-	die "Kit::Validator::Fixture: kit_dir is required\n"
+	die "Genesis::Kit::Validator::Fixture: kit_dir is required\n"
 		unless defined $kit_dir && length $kit_dir;
-	die "Kit::Validator::Fixture: kit_dir does not exist: $kit_dir\n"
+	die "Genesis::Kit::Validator::Fixture: kit_dir does not exist: $kit_dir\n"
 		unless -d $kit_dir;
 	return bless {kit_dir => $kit_dir}, $class;
 }
@@ -31,7 +31,7 @@ sub read {
 	my ($self, $category, $name) = @_;
 	my $p = $self->path($category, $name);
 	open my $fh, '<', $p
-		or die "Kit::Validator::Fixture: cannot read $p: $!\n";
+		or die "Genesis::Kit::Validator::Fixture: cannot read $p: $!\n";
 	local $/;
 	my $body = <$fh>;
 	close $fh;
@@ -44,7 +44,7 @@ sub write {
 	my $dir = dirname($p);
 	make_path($dir) unless -d $dir;
 	open my $fh, '>', $p
-		or die "Kit::Validator::Fixture: cannot write $p: $!\n";
+		or die "Genesis::Kit::Validator::Fixture: cannot write $p: $!\n";
 	print $fh $body;
 	close $fh;
 	return $p;
@@ -56,11 +56,11 @@ __END__
 
 =head1 NAME
 
-Kit::Validator::Fixture - Path resolution for kit spec fixtures
+Genesis::Kit::Validator::Fixture - Path resolution for kit spec fixtures
 
 =head1 SYNOPSIS
 
-  my $fx = Kit::Validator::Fixture->new(kit_dir => '/path/to/kit');
+  my $fx = Genesis::Kit::Validator::Fixture->new(kit_dir => '/path/to/kit');
   my $p  = $fx->path('deployments', 'aws');   # kit/spec/deployments/aws.yml
   if ($fx->exists('vault', 'aws')) { ... }
   my $body = $fx->read('deployments', 'aws');

@@ -42,9 +42,20 @@ my $GENESIS_LOADED;
 sub _require_genesis {
 	return if $GENESIS_LOADED;
 
+	# Dev-loop path: GENESIS_LIB pointing at a genesis source
+	# checkout is authoritative -- the same env var `bin/genesis`
+	# itself reads to find its Perl modules.  Prepend to @INC so
+	# `require Genesis` picks up source before any packed extract
+	# that might also be visible.
+	if ($ENV{GENESIS_LIB} && -d $ENV{GENESIS_LIB}) {
+		require lib;
+		lib->import($ENV{GENESIS_LIB});
+	}
+
 	# Fast path: if Genesis is already reachable via @INC (dev
-	# iteration with PERL5LIB set), use it -- but only if it loads
-	# cleanly.  Any load error falls through to the extract path.
+	# iteration with PERL5LIB or GENESIS_LIB set), use it -- but
+	# only if it loads cleanly.  Any load error falls through to
+	# the extract path.
 	if (eval { require Genesis; require Service::Vault::Local; 1 }) {
 		$GENESIS_LOADED = 1;
 		return;
@@ -177,12 +188,22 @@ sub _execute {
 	my $fixture_dir = "$kit_dir/spec";
 	my $fx          = Kit::Validator::Fixture->new(kit_dir => $kit_dir);
 
-	# 1. Ephemeral workdir with scoped HOME.
+	# 1. Ephemeral per-env workdir as a subdirectory of the
+	# run-scoped sandbox HOME (set up by Kit::Validator::Spec at
+	# load time -- see that module's SANDBOX MODEL section).  HOME
+	# itself is not rescoped here; every env in the run shares the
+	# same .saferc and .genesis under $ENV{HOME}, which is exactly
+	# what the bash-hook sub-genesis calls need to resolve the
+	# local vault.
+	#
+	# The workdir lives under $HOME rather than in a sibling /tmp
+	# dir so a single CLEANUP -- Kit::Validator::Spec's sandbox
+	# tempdir -- handles removal on interpreter exit.  No per-env
+	# File::Temp handles racing at exit time.
 	my $workdir = tempdir(
-		'kv-XXXXXX', DIR => File::Spec->tmpdir, CLEANUP => 1,
+		$env->name.'-XXXXXX', DIR => $ENV{HOME}, CLEANUP => 0,
 	);
-	local $ENV{HOME} = $workdir;
-	local $ENV{XDG_CONFIG_HOME} = "$workdir/.config";
+	local our $CURRENT_WORKDIR = $workdir;
 
 	# 2. Ephemeral vault via Service::Vault::Local.  Alias PID-scoped
 	# so parallel prove workers don't collide.
@@ -191,12 +212,12 @@ sub _execute {
 	my $shutdown_guard = _shutdown_guard($vault);
 
 	# 3. Testing-mode env vars carried into every genesis subcommand.
+	# Git identity comes from GIT_AUTHOR_NAME/EMAIL set once by
+	# Kit::Validator::Spec at load time -- see that module's
+	# SANDBOX MODEL section.
 	local %ENV = (%ENV, %{Kit::Validator::Runner::Cmd::testing_env(env => $env)});
 
-	# 4. git identity in the scoped HOME.
-	_seed_git_identity($workdir);
-
-	# 5. genesis init in the workdir, linking against the kit under test.
+	# 4. genesis init in the workdir, linking against the kit under test.
 	# Pass the vault's URL, not its alias: Service::Vault::Remote->find
 	# keys lookup on URL, and passing the alias name produces the opaque
 	# "Can't call method 'connect_and_validate' on undef" downstream.
@@ -291,6 +312,13 @@ sub _execute {
 # as a bash `-c` string and appends `"${@}"` to consume the rest,
 # giving us argv-style dispatch.  Extra opts (onfailure, stderr,
 # stdin, ...) go in the leading hashref.
+# CURRENT_WORKDIR - localized by _execute for the duration of one env
+# run.  _run_cmd reads this to default the subprocess cwd, so
+# `--cwd deployments/` and other relative paths resolve to the
+# per-env subdirectory (which sits inside the run-scoped sandbox HOME
+# but is a distinct dir).  Not a stable API -- internal use only.
+our $CURRENT_WORKDIR;
+
 sub _run_cmd {
 	my ($argv, %opts) = @_;
 	die "_run_cmd: expected arrayref argv, got ".ref($argv)."\n"
@@ -301,11 +329,10 @@ sub _run_cmd {
 	# unsets it along the way, and a lost HOME breaks safe/.saferc
 	# lookup silently (all_vaults returns []).
 	$opts{env} = {%{$opts{env}//{}}, HOME => $ENV{HOME}};
-	# Default the subprocess CWD to $HOME (which the Runner has already
-	# scoped to the per-env workdir), so `--cwd deployments/` and
-	# similar relative paths resolve.  Callers may still override via
-	# an explicit `dir => ...`.
-	$opts{dir} //= $ENV{HOME};
+	# Default the subprocess CWD to the per-env workdir (set by
+	# _execute), so relative paths like `--cwd deployments/` resolve.
+	# Callers may still override via an explicit `dir => ...`.
+	$opts{dir} //= ($CURRENT_WORKDIR // $ENV{HOME});
 	return Genesis::run(\%opts, @$argv);
 }
 
@@ -337,14 +364,6 @@ sub DESTROY {
 	eval { $self->{vault}->shutdown } if $self->{vault};
 }
 package Kit::Validator::Runner;
-
-sub _seed_git_identity {
-	my ($workdir) = @_;
-	my $gc = "$workdir/.gitconfig";
-	open my $fh, '>', $gc or die "cannot write $gc: $!";
-	print $fh "[user]\n\tname = Kit Validator\n\temail = validator\@localhost\n";
-	close $fh;
-}
 
 sub _copy_env_fixture {
 	my ($fx, $env, $workdir) = @_;

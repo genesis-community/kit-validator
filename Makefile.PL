@@ -18,7 +18,7 @@ WriteMakefile(
 	# resolved at runtime (either via PERL5LIB, ~/.genesis/lib
 	# self-extract, or a KIT_VALIDATOR_GENESIS override), so it is
 	# NOT listed here -- treating it as a soft dep at load time
-	# lets kit-validator install cleanly on machines that pack
+	# lets genesis-kit-validator install cleanly on machines that pack
 	# Genesis differently.
 	PREREQ_PM => {
 		'JSON::PP'  => '0',
@@ -31,7 +31,7 @@ WriteMakefile(
 		'Test::Exit'   => '0',
 	},
 
-	EXE_FILES => [ 'bin/kit-validator' ],
+	EXE_FILES => [ 'bin/genesis-kit-validator' ],
 
 	META_MERGE => {
 		'meta-spec' => { version => 2 },

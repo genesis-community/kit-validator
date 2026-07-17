@@ -5,13 +5,13 @@ version: 0.0.1
 authors:
   - Kit Validator Test Fixture
 
-docs: https://github.com/genesis-community/kit-validator
-code: https://github.com/genesis-community/kit-validator
+docs: https://github.com/genesis-community/genesis-kit-validator
+code: https://github.com/genesis-community/genesis-kit-validator
 
 genesis_version_min: 3.1.0
 
 description: |
-  Synthetic minimal kit used to smoke-test the kit-validator framework
+  Synthetic minimal kit used to smoke-test the genesis-kit-validator framework
   end-to-end.  Exercises: kit-linking, secret generation, manifest
   synthesis, prune, bosh interpolation, spruce-diff golden compare.
   NOT a real deployable kit; releases and stemcells are empty.

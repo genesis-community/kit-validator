@@ -81,14 +81,18 @@ sub genesis_yamls_cmd {
 	];
 }
 
-sub genesis_check_secrets_cmd {
+# List the env's user-provided secret paths as a JSON array of full
+# vault paths ("/secret/<env>/<kit>/<path>:<key>").  genesis 3.2 dropped
+# check-secrets' -l/-m/type= filtering; `secrets --json type=<type>` is
+# the current interface for this.
+sub genesis_provided_secrets_cmd {
 	my (%o) = @_;
 	return [
-		_genesis_bin(), 'check-secrets',
-		'--no-color', '-lm', '-v',
+		_genesis_bin(), 'secrets',
+		'--no-color', '--json',
 		'--cwd', 'deployments/',
 		$o{env}->name,
-		'type=provided',
+		'type=userprovided',
 	];
 }
 

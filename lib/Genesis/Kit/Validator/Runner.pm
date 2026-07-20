@@ -621,20 +621,21 @@ sub _bootstrap_vault_cache_if_missing {
 	# seeding (things a real deploy would supply -- IaaS creds, TLS
 	# CA overrides, etc.).  Everything else (random passwords, self-
 	# signed certs, etc.) genesis will generate via add-secrets.
-	my $checksecrets = _run_cmd(
-		Genesis::Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env),
-		stderr => '&1',
+	# Keep stderr out of the capture -- genesis chatters progress there,
+	# and the payload is a pretty-printed JSON array on stdout.
+	my $provided_json = _run_cmd(
+		Genesis::Kit::Validator::Runner::Cmd::genesis_provided_secrets_cmd(env => $env),
+		stderr => 0,
 	);
-	# _run_cmd returns whatever Genesis::run returns; when it's scalar,
-	# that's the combined output.  Parse for `provided:` lines emitted
-	# by check-secrets (path:key entries).
-	if (defined $checksecrets) {
-		for my $line (split /\n/, $checksecrets) {
-			next unless $line =~ /^\s*(secret\/\S+):(\S+)\s+provided\s*$/;
-			my ($path, $key) = ($1, $2);
-			# Stub value; content doesn't matter, only presence.
-			_run_cmd(['safe', 'set', $path, "$key=stub"], stderr => '&1');
-		}
+	require Genesis;
+	my ($json_text) = (($provided_json // '') =~ /(\[.*\])/s);
+	my $provided = $json_text ? eval { Genesis::load_json($json_text) } : undef;
+	$provided = [] unless ref($provided) eq 'ARRAY';
+	for my $entry (@$provided) {
+		next unless !ref($entry) && $entry =~ m{^/?(secret/\S+?):(\S+)$};
+		my ($path, $key) = ($1, $2);
+		# Stub value; content doesn't matter, only presence.
+		_run_cmd(['safe', 'set', $path, "$key=stub"], stderr => '&1');
 	}
 
 	# add-secrets generates every non-provided secret.

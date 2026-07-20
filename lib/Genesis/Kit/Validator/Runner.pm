@@ -260,7 +260,12 @@ sub _execute {
 	_write_cpi_stub($cpi_stub_path);
 
 	# 8. Vault-cache bootstrap (only if spec/vault/<env>.yml absent).
-	_bootstrap_vault_cache_if_missing($fx, $env, $kit_name, $vault);
+	# Expected-failure envs (any output_matchers set) never bootstrap:
+	# add-secrets runs the blueprint, and for these envs the blueprint
+	# bailing IS the assertion -- it fires later at the check/manifest
+	# steps, where the matcher is applied.
+	_bootstrap_vault_cache_if_missing($fx, $env, $kit_name, $vault)
+		unless %{$env->output_matchers // {}};
 
 	# 9. Always import the (now-present) tokenized cache back into the
 	# vault, replacing the real generated values from bootstrap with

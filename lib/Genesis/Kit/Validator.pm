@@ -30,8 +30,14 @@ sub kit_dir {
 	# Emit the runtime preamble now that we can resolve the kit name
 	# from its kit.yml -- Spec::import fires before kit_dir() is
 	# called, so the preamble is deferred here to include the name.
+	# Framework unit tests exercise kit_dir directly without loading
+	# Spec (they monkey-patch Runner->run to a no-op); skip the
+	# preamble when the sandbox bring-up hasn't happened, since
+	# emit_preamble reads $Genesis::VERSION and Genesis isn't loadable
+	# in that path.
 	require Genesis::Kit::Validator::Spec;
-	Genesis::Kit::Validator::Spec::emit_preamble(_detect_kit_name($KIT_DIR));
+	Genesis::Kit::Validator::Spec::emit_preamble(_detect_kit_name($KIT_DIR))
+		if $Genesis::Kit::Validator::Spec::INITIALIZED;
 
 	return $KIT_DIR;
 }

@@ -14,8 +14,14 @@ our @EXPORT_OK = qw/kit_dir test_env/;
 
 use constant MIN_GENESIS_VERSION => '3.2.0-rc.0';
 
-# One-shot sandbox state.
-my $INITIALIZED;
+# One-shot sandbox state.  INITIALIZED is `our` (not `my`) so external
+# callers -- notably Kit::Validator::kit_dir -- can check whether
+# import() actually ran the runtime bring-up (Genesis lib load, shared
+# vault, theme).  Framework unit tests use `use_ok` on this module but
+# monkey-patch Runner->run to a no-op; without a way to see that state
+# they hit emit_preamble's `require Genesis` and crash on the empty
+# sandbox.
+our $INITIALIZED;
 our $SANDBOX_HOME;
 our $SHARED_VAULT;
 my $_sandbox_guard;
@@ -154,7 +160,21 @@ sub _start_shared_vault {
 # sandbox HOME cleanup (File::Temp CLEANUP fires from the same END
 # phase in reverse-declaration order), so `safe` still has a live
 # .saferc to hit when shutdown reads its own target.
-END { eval { $SHARED_VAULT->shutdown } if $SHARED_VAULT }
+#
+# Preserve $? across shutdown: Local::shutdown does kill+waitpid
+# loops on the vault/safe child processes, and the waitpid side
+# effect updates $?.  Test::Builder's END inspects $? after every
+# user-space END has run and reports "your test exited with N"
+# when it finds a stale non-zero -- turning an otherwise-clean
+# `prove` run into a failing one.  Save-and-restore so the vault
+# teardown stays semantically invisible to the test framework.
+END {
+	if ($SHARED_VAULT) {
+		my $saved = $?;
+		eval { $SHARED_VAULT->shutdown };
+		$? = $saved;
+	}
+}
 
 sub _check_genesis_version {
 	require Genesis;

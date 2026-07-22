@@ -239,16 +239,20 @@ subtest 'spruce_diff_cmd' => sub {
 	], 'spruce diff <golden> <actual>';
 };
 
-subtest 'genesis_check_secrets_cmd' => sub {
+subtest 'genesis_provided_secrets_cmd' => sub {
+	# Renamed from genesis_check_secrets_cmd when genesis 3.2 dropped
+	# check-secrets' -l/-m/type= filtering; the seeding pass now queries
+	# `genesis secrets --json type=userprovided` and parses the JSON
+	# array of vault paths back out.
 	my $env = env();
-	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env);
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_provided_secrets_cmd(env => $env);
 	is_deeply $cmd, [
-		'genesis', 'check-secrets',
-		'--no-color', '-lm', '-v',
+		'genesis', 'secrets',
+		'--no-color', '--json',
 		'--cwd', 'deployments/',
 		$ENV_NAME,
-		'type=provided',
-	], 'check-secrets with -lm and provided-only filter';
+		'type=userprovided',
+	], 'secrets --json with userprovided type filter';
 };
 
 subtest 'genesis_add_secrets_cmd' => sub {
@@ -288,7 +292,7 @@ subtest 'KIT_VALIDATOR_GENESIS overrides argv[0] for every genesis-* cmd' => sub
 		env => $env, fixture_dir => '/x')->[0], 'g32';
 	is Genesis::Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
 		env => $env, fixture_dir => '/x')->[0], 'g32';
-	is Genesis::Kit::Validator::Runner::Cmd::genesis_check_secrets_cmd(env => $env)->[0], 'g32';
+	is Genesis::Kit::Validator::Runner::Cmd::genesis_provided_secrets_cmd(env => $env)->[0], 'g32';
 	is Genesis::Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env)->[0], 'g32';
 };
 

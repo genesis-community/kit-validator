@@ -7,7 +7,7 @@ use File::Basename qw/dirname/;
 use File::Spec;
 use Cwd qw/abs_path/;
 
-my  = 'genesis-kit-validator';
+my $PROG = 'genesis-kit-validator';
 
 sub usage {
 	print <<EOF;
@@ -18,15 +18,34 @@ Commands:
 
 Options for 'run':
   --focus <env>                Only run the named environment (repeatable)
-  --update-goldens             Delete existing spec/results/<env>.yml for
-                               --focus'd envs before running, so the next
-                               run re-materializes them.
+  --regenerate                 Remove spec/results/<env>.{yml,yamls.txt} for
+                               each --focus'd env so the next run bootstraps
+                               fresh goldens.  Requires --focus.
+  --regenerate-all             Everything --regenerate does, plus removes
+                               spec/vault/<env>.yml so the vault cache also
+                               re-materializes.  Requires --focus.
+  --update-goldens             Deprecated alias for --regenerate; kept for
+                               scripts that used the 0.2.0 flag name.
+  --genesis <path>             Path to the genesis binary to use (sets
+                               KIT_VALIDATOR_GENESIS for the spawned prove).
+  --genesis-lib <path>         Path to a Genesis source lib to use for the
+                               dev-loop (sets GENESIS_LIB; Runner picks it
+                               up via lib->import before falling back to the
+                               extracted \$HOME/.genesis/lib).
   --verbose                    Verbose output (prove -v).
   -h, --help                   Show this help.
 
 Environment:
   KIT_VALIDATOR_FOCUS          Colon-separated env names to focus on
                                (equivalent to repeated --focus).
+  KIT_VALIDATOR_GENESIS        Path to the genesis binary (overridden by
+                               --genesis if both are set).
+  KIT_VALIDATOR_LIB            Path to the validator's own lib.  Auto-derived
+                               from dirname(script)/../lib when unset, so
+                               running bin/$PROG straight out of a checkout
+                               needs no extra env setup.
+  GENESIS_LIB                  Path to a Genesis source lib (overridden by
+                               --genesis-lib if both are set).
 
 EOF
 	exit(0);
@@ -44,14 +63,33 @@ usage();
 
 sub run_specs {
 	my @args = @_;
-	my (@focus, $update_goldens, $verbose, $help);
+	my (@focus, $regenerate, $regenerate_all, $update_goldens_alias,
+	    $verbose, $help, $genesis, $genesis_lib);
 	GetOptionsFromArray(\@args,
 		'focus=s'         => \@focus,
-		'update-goldens'  => \$update_goldens,
+		'regenerate'      => \$regenerate,
+		'regenerate-all'  => \$regenerate_all,
+		'update-goldens'  => \$update_goldens_alias,
+		'genesis=s'       => \$genesis,
+		'genesis-lib=s'   => \$genesis_lib,
 		'verbose|v'       => \$verbose,
 		'help|h'          => \$help,
 	) or usage();
 	usage() if $help;
+
+	# --update-goldens is a deprecated alias for --regenerate.
+	$regenerate ||= $update_goldens_alias;
+
+	# --regenerate[-all] must be scoped -- a bare invocation would wipe
+	# every env's goldens on the first --focus-less run, so refuse.
+	if ($regenerate_all && !@focus) {
+		warn "$PROG: --regenerate-all requires at least one --focus\n";
+		return 2;
+	}
+	if ($regenerate && !@focus) {
+		warn "$PROG: --regenerate requires at least one --focus\n";
+		return 2;
+	}
 
 	my $spec_path = shift @args // 'spec/spec.t';
 	unless (-e $spec_path) {
@@ -64,20 +102,24 @@ sub run_specs {
 		}
 	}
 
-	# --update-goldens deletes matched result files upfront.  Only
-	# meaningful with --focus (otherwise we'd blow away every golden;
-	# that's a bulk operation the user should do with rm(1)).
-	if ($update_goldens) {
-		unless (@focus) {
-			warn "$PROG: --update-goldens requires at least one --focus\n";
-			return 2;
-		}
+	# Cache eviction happens before prove runs so the bootstrap-if-
+	# missing path in the Runner writes fresh fixtures on this same
+	# invocation.
+	if ($regenerate || $regenerate_all) {
 		my $spec_dir = dirname(abs_path($spec_path));
 		for my $env (@focus) {
-			my $g = "$spec_dir/results/$env.yml";
-			if (-f $g) {
-				unlink $g or warn "$PROG: could not remove $g: $!\n";
-				print "$PROG: removed $g\n";
+			my @paths = (
+				"$spec_dir/results/$env.yml",
+				"$spec_dir/results/$env.yamls.txt",
+			);
+			push @paths, "$spec_dir/vault/$env.yml" if $regenerate_all;
+			for my $p (@paths) {
+				next unless -e $p;
+				if (unlink $p) {
+					print "$PROG: removed $p\n";
+				} else {
+					warn "$PROG: could not remove $p: $!\n";
+				}
 			}
 		}
 	}
@@ -86,6 +128,29 @@ sub run_specs {
 	# reads it in test_env and short-circuits non-matching envs.
 	if (@focus) {
 		$ENV{KIT_VALIDATOR_FOCUS} = join(':', @focus);
+	}
+
+	# CLI flags override any pre-existing env values.  A user setting
+	# --genesis /flag/path expects that to win over an inherited
+	# KIT_VALIDATOR_GENESIS from their shell, not the reverse.
+	if (defined $genesis)     { $ENV{KIT_VALIDATOR_GENESIS} = $genesis     }
+	if (defined $genesis_lib) { $ENV{GENESIS_LIB}           = $genesis_lib }
+
+	# KIT_VALIDATOR_LIB auto-derives from dirname(script)/../lib when
+	# unset -- lets `bin/genesis-kit-validator run` work straight out
+	# of a checkout without pre-setting any env vars.  Skip the derive
+	# under installed-mode layouts (e.g. cpanm to ~/perl5/bin, where
+	# ../lib is ~/perl5/lib -- exists but modules live at
+	# ~/perl5/lib/perl5/, so the derived path would just cruft up
+	# @INC).  The Spec.pm marker check distinguishes the two cases.
+	# An explicit pre-existing value is preserved on purpose so users
+	# can point at a different lib for A/B testing.
+	unless (defined $ENV{KIT_VALIDATOR_LIB}) {
+		my $auto_lib = abs_path(dirname(abs_path($0)) . '/../lib');
+		if (defined $auto_lib
+		 && -f "$auto_lib/Genesis/Kit/Validator/Spec.pm") {
+			$ENV{KIT_VALIDATOR_LIB} = $auto_lib;
+		}
 	}
 
 	my @prove_args = ('prove');

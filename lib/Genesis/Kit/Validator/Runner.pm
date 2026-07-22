@@ -1,6 +1,7 @@
 package Genesis::Kit::Validator::Runner;
 use v5.20;
 use warnings;
+use utf8;
 
 use Genesis::Kit::Validator::Environment;
 use Genesis::Kit::Validator::Fixture;
@@ -10,6 +11,7 @@ use Genesis::Kit::Validator::Runner::Cmd;
 
 use File::Temp qw/tempdir/;
 use File::Basename qw/basename/;
+use Cwd qw/getcwd/;
 
 # Load Genesis lazily.  Framework unit tests import the Runner but
 # should not require the Genesis runtime; only Runner->run does.
@@ -52,6 +54,13 @@ sub _require_genesis {
 		lib->import($ENV{GENESIS_LIB});
 	}
 
+	# Seed $Genesis::VERSION before require Genesis so its `//=` in
+	# `our $VERSION //= "(development)"` doesn't clobber a real
+	# value.  Kits gate on this via check_minimum_genesis_version
+	# (e.g. bosh/4.1.0 requires >=3.1.0-rc.14); a bare "(development)"
+	# never satisfies semver checks.
+	_seed_genesis_version();
+
 	# Fast path: if Genesis is already reachable via @INC (dev
 	# iteration with PERL5LIB or GENESIS_LIB set), use it -- but
 	# only if it loads cleanly.  Any load error falls through to
@@ -90,6 +99,24 @@ sub _require_genesis {
 		"Genesis::Kit::Validator::Runner: Genesis modules could not be loaded "
 		."from $genesis_lib after successful extract.\nUnderlying error: $@\n";
 	$GENESIS_LOADED = 1;
+}
+
+# _seed_genesis_version - pin $Genesis::VERSION before `require
+# Genesis` so kit min-version checks pass in-process.  Preference
+# order: GENESIS_DEV_VERSION env var (matches Genesis's own dev
+# convention), then a `<binary> --version` probe, then leave unset
+# and let Genesis default to "(development)".
+sub _seed_genesis_version {
+	return if defined $Genesis::VERSION;
+	if (my $v = $ENV{GENESIS_DEV_VERSION}) {
+		$Genesis::VERSION = $v;
+		return;
+	}
+	my $binary = $ENV{KIT_VALIDATOR_GENESIS} || 'genesis';
+	my $out = eval { qx{$binary --version 2>/dev/null} } // '';
+	if ($out =~ /Genesis\s+v(\S+)/i) {
+		$Genesis::VERSION = $1;
+	}
 }
 
 # _extract_is_current - probe whether ~/.genesis/checksum matches the
@@ -167,6 +194,43 @@ sub run {
 	# Late-load Test::More so the module can be `use`d in contexts that
 	# never call ->run (e.g. inline docs, package_loaded checks).
 	require Test::More;
+	# Emit a visual banner so consecutive envs are easy to distinguish
+	# in the scrollback -- Test::More::subtest itself only prints a
+	# `# Subtest: env: <name>` header, which reads as continuation
+	# rather than a boundary in a busy log stream.
+	#
+	# Theme flips on the detected terminal background so the bar
+	# stays high-contrast on both dark and light schemes:
+	#   dark terminal  -> light-grey rules, black-on-white title bar
+	#   light terminal -> dark-grey rules, bright-white-on-black bar
+	# terminal_colors() defaults to dark when the probe fails.
+	require Genesis::Term;
+	my $w = Genesis::Term::terminal_width();
+	my $tc = Genesis::Term::terminal_colors();
+	my $is_dark = $tc ? $tc->{is_dark} : 1;
+	# Theme SGR triple:
+	#   rule -- horizontal border colour
+	#   bar  -- fg+bg of the title line
+	#   name -- accent colour applied only to the env name so it
+	#           reads as the eye-drawing token on the bar; keeps
+	#           the bar's bg so the highlight stays a solid strip.
+	my ($rule_sgr, $bar_sgr, $name_sgr) = $is_dark
+		? ("\e[90m",     "\e[30;47m", "\e[1;35;47m")  # dark bg: light-grey rules, black-on-white bar, bold magenta name
+		: ("\e[30m",     "\e[97;40m", "\e[1;95;40m"); # light bg: dark-grey rules, white-on-black bar, bold bright-magenta name
+	my $reset = "\e[0m";
+	my $rule  = ('─' x $w);
+	my $label = 'Testing environment: ';
+	my $name  = $env->name;
+	# Compute the padding manually because SGR escapes don't
+	# occupy screen columns -- sprintf's %-*s width would count
+	# them and misalign the trailing edge of the bar.
+	my $pad_len = $w - 2 - length($label) - length($name);
+	$pad_len = 0 if $pad_len < 0;
+	my $pad = ' ' x $pad_len;
+	warn "\n"
+	   . "${rule_sgr}${rule}${reset}\n"
+	   . "${bar_sgr}  ${label}${name_sgr}${name}\e[22m${bar_sgr}${pad}${reset}\n"
+	   . "${rule_sgr}${rule}${reset}\n";
 	Test::More::subtest("env: ".$env->name => sub {
 		my $ok = eval { $class->_execute($env, kit_dir => $kit_dir); 1 };
 		if ($ok) {
@@ -175,6 +239,9 @@ sub run {
 			my $err = $@;
 			Test::More::fail("pipeline: ".$env->name);
 			Test::More::diag($err);
+			# Record for `KIT_VALIDATOR_FOCUS=@last-failed` re-runs.
+			require Genesis::Kit::Validator;
+			Genesis::Kit::Validator::record_failure($env->name);
 		}
 	});
 }
@@ -214,11 +281,15 @@ sub _execute {
 	);
 	local our $CURRENT_WORKDIR = $workdir;
 
-	# 2. Ephemeral vault via Service::Vault::Local.  Alias PID-scoped
-	# so parallel prove workers don't collide.
-	my $vault_alias = 'kv-'.$env->name.'-'.$$;
-	my $vault = Service::Vault::Local->create($vault_alias);
-	my $shutdown_guard = _shutdown_guard($vault);
+	# 2. Shared run-scoped vault owned by Genesis::Kit::Validator::Spec.
+	# Each env's writes land under secret/<env-name>/<kit>/..., so the
+	# subtree per env is naturally disjoint -- no need to spin up a
+	# fresh vault (and pay the safe/vault fork + saferc restore cost)
+	# for every env.
+	require Genesis::Kit::Validator::Spec;
+	my $vault = Genesis::Kit::Validator::Spec::shared_vault()
+		or die "Genesis::Kit::Validator::Runner: no shared vault -- ".
+			"was Genesis::Kit::Validator::Spec loaded?\n";
 
 	# 3. Testing-mode env vars carried into every genesis subcommand.
 	# Git identity comes from GIT_AUTHOR_NAME/EMAIL set once by
@@ -261,11 +332,14 @@ sub _execute {
 
 	# 8. Vault-cache bootstrap (only if spec/vault/<env>.yml absent).
 	# Expected-failure envs (any output_matchers set) never bootstrap:
-	# add-secrets runs the blueprint, and for these envs the blueprint
-	# bailing IS the assertion -- it fires later at the check/manifest
-	# steps, where the matcher is applied.
-	_bootstrap_vault_cache_if_missing($fx, $env, $kit_name, $vault)
-		unless %{$env->output_matchers // {}};
+	# add-secrets runs the blueprint, and for those envs the bail IS
+	# the assertion -- it fires later at the matcher-aware check/
+	# manifest steps.
+	if (%{$env->output_matchers // {}}) {
+		_step($env, "skipping bootstrap (env has output_matchers)");
+	} else {
+		_bootstrap_vault_cache_if_missing($fx, $env, $kit_name, $vault);
+	}
 
 	# 9. Always import the (now-present) tokenized cache back into the
 	# vault, replacing the real generated values from bootstrap with
@@ -273,9 +347,11 @@ sub _execute {
 	# This is what lets golden manifests be committed to git safely --
 	# they carry the tokens, not real secret material, and every
 	# subsequent smoke run replays the same tokens through spruce.
+	_step($env, "importing vault cache into local vault");
 	_import_vault_cache($fx, $env, $vault);
 
 	# 10. genesis check with output_matchers awareness.
+	_step($env, Genesis::Kit::Validator::Spec::cprintf("running #keyword{genesis check}"));
 	my $check_out = _run_genesis_step(
 		cmd       => Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
 			env => $env, fixture_dir => $fixture_dir,
@@ -289,13 +365,18 @@ sub _execute {
 	# separately from manifest-content regressions.  Skipped when the
 	# env expects genesis_check to fail (matcher set) -- a failing
 	# check means yamls generation isn't reachable in real usage.
-	_run_yamls_diff_step(
-		env         => $env,
-		fixture_dir => $fixture_dir,
-		cpi_stub_path => $cpi_stub_path,
-	) unless $env->output_matchers->{genesis_check};
+	unless ($env->output_matchers->{genesis_check}) {
+		_step($env, Genesis::Kit::Validator::Spec::cprintf(
+			"running #keyword{genesis yamls} (merge-order diff)"));
+		_run_yamls_diff_step(
+			env         => $env,
+			fixture_dir => $fixture_dir,
+			cpi_stub_path => $cpi_stub_path,
+		);
+	}
 
 	# 12. genesis manifest with output_matchers awareness.
+	_step($env, Genesis::Kit::Validator::Spec::cprintf("running #keyword{genesis manifest}"));
 	my $manifest_yaml = _run_genesis_step(
 		cmd       => Genesis::Kit::Validator::Runner::Cmd::genesis_manifest_cmd(
 			env => $env, fixture_dir => $fixture_dir,
@@ -311,6 +392,7 @@ sub _execute {
 
 	# 12. Prune volatile keys; peel off bosh-variables.
 	# Parse via Genesis::load_yaml (spruce-shell under the hood).
+	_step($env, "pruning volatile keys from manifest");
 	my $manifest = Genesis::load_yaml($manifest_yaml);
 	my $is_proto = _env_has_proto_feature($env, $workdir);
 	my ($pruned, $bosh_vars)
@@ -320,9 +402,11 @@ sub _execute {
 	_bootstrap_credhub_stub_if_missing($fx, $env, $pruned, $workdir);
 
 	# 14. bosh int interpolation.
+	_step($env, Genesis::Kit::Validator::Spec::cprintf("interpolating manifest with #keyword{bosh int}"));
 	my $rendered = _interpolate($fx, $env, $pruned, $bosh_vars, $workdir);
 
 	# 15. Golden bootstrap or spruce-diff assertion.
+	_step($env, "comparing against golden manifest");
 	_compare_or_bootstrap_golden($fx, $env, $rendered);
 }
 
@@ -358,7 +442,34 @@ sub _run_cmd {
 	# _execute), so relative paths like `--cwd deployments/` resolve.
 	# Callers may still override via an explicit `dir => ...`.
 	$opts{dir} //= ($CURRENT_WORKDIR // $ENV{HOME});
-	return Genesis::run(\%opts, @$argv);
+	# Genesis::run captures subprocess pipes without a :utf8 layer,
+	# so returns raw bytes.  Downstream Test::More::diag re-emits
+	# through a byte-oriented handle that treats each byte as Latin-1
+	# and re-encodes -- turning ✓ (E2 9C 93) into `â  ` mojibake.
+	# Decode-once here so every caller sees proper character strings.
+	require Encode;
+	if (wantarray) {
+		my ($out, $rc, $err) = Genesis::run(\%opts, @$argv);
+		$out = Encode::decode('UTF-8', $out, Encode::FB_DEFAULT()) if defined $out;
+		$err = Encode::decode('UTF-8', $err, Encode::FB_DEFAULT()) if defined $err;
+		return ($out, $rc, $err);
+	}
+	my $out = Genesis::run(\%opts, @$argv);
+	$out = Encode::decode('UTF-8', $out, Encode::FB_DEFAULT()) if defined $out;
+	return $out;
+}
+
+# _step - emit a `[TEST <env>] <msg>` progress line on stderr.  Uses
+# warn so lines interleave with Test::More output on the same stream
+# a real user watches.  Kept tiny -- callers pass a short verb-first
+# phrase; details go on their own follow-up lines.
+sub _step {
+	my ($env, $msg) = @_;
+	require Genesis::Kit::Validator::Spec;
+	warn Genesis::Kit::Validator::Spec::cprintf(
+		"#muted{[}#keyword{TEST} #ident{%s}#muted{]} %s\n",
+		$env->name, $msg
+	);
 }
 
 sub _detect_kit_name {
@@ -374,21 +485,6 @@ sub _detect_kit_name {
 		or die "Genesis::Kit::Validator::Runner: kit.yml has no 'name'\n";
 	return $name;
 }
-
-sub _shutdown_guard {
-	my ($vault) = @_;
-	# Returns a scope-scoped guard: a blessed hashref whose DESTROY
-	# shuts down the local vault, ensuring cleanup on both normal
-	# return and die().
-	return bless {vault => $vault}, 'Genesis::Kit::Validator::Runner::_Guard';
-}
-
-package Genesis::Kit::Validator::Runner::_Guard;
-sub DESTROY {
-	my ($self) = @_;
-	eval { $self->{vault}->shutdown } if $self->{vault};
-}
-package Genesis::Kit::Validator::Runner;
 
 # _run_yamls_diff_step - invoke `genesis <env> yamls`, normalize
 # the kit-version tokens, and diff against spec/results/<env>.yamls.txt.
@@ -430,7 +526,11 @@ sub _run_yamls_diff_step {
 			print $fh $actual;
 			close $fh;
 			Test::More::pass("bootstrapped golden: ".$env->name.".yamls.txt");
-			Test::More::diag("wrote new golden: $golden_path (".length($actual)." bytes)");
+			require Genesis;
+			Test::More::diag(
+				"wrote new golden: "
+				.Genesis::humanize_path($golden_path, base_dir => $o{fixture_dir}."/..")
+				." (".length($actual)." bytes)");
 			return;
 		}
 
@@ -620,7 +720,17 @@ sub _flatten_leaves {
 
 sub _bootstrap_vault_cache_if_missing {
 	my ($fx, $env, $kit_name, $vault) = @_;
-	return if $fx->exists('vault', $env->name);
+	require Genesis;
+	require Genesis::Kit::Validator::Spec;
+	my $cache_path = Genesis::humanize_path(
+		$fx->path('vault', $env->name), base_dir => $fx->kit_dir);
+	if ($fx->exists('vault', $env->name)) {
+		_step($env, Genesis::Kit::Validator::Spec::cprintf(
+			"using cached vault at #path{%s}", $cache_path));
+		return;
+	}
+	_step($env, Genesis::Kit::Validator::Spec::cprintf(
+		"no cached vault at #path{%s}, regenerating", $cache_path));
 
 	# Ask genesis for the "provided" secret paths that need external
 	# seeding (things a real deploy would supply -- IaaS creds, TLS
@@ -632,18 +742,25 @@ sub _bootstrap_vault_cache_if_missing {
 		Genesis::Kit::Validator::Runner::Cmd::genesis_provided_secrets_cmd(env => $env),
 		stderr => 0,
 	);
-	require Genesis;
 	my ($json_text) = (($provided_json // '') =~ /(\[.*\])/s);
 	my $provided = $json_text ? eval { Genesis::load_json($json_text) } : undef;
 	$provided = [] unless ref($provided) eq 'ARRAY';
+	_step($env, Genesis::Kit::Validator::Spec::cprintf(
+		"#number{%d} user-provided secret(s)", scalar(@$provided)));
 	for my $entry (@$provided) {
 		next unless !ref($entry) && $entry =~ m{^/?(secret/\S+?):(\S+)$};
 		my ($path, $key) = ($1, $2);
-		# Stub value; content doesn't matter, only presence.
-		_run_cmd(['safe', 'set', $path, "$key=stub"], stderr => '&1');
+		# Value tags the secret's full identity, so any downstream
+		# transposition surfaces as a visible mismatch.
+		my $value = "User<$entry>";
+		_run_cmd(['safe', 'set', $path, "$key=$value"], stderr => '&1');
+		_step($env, Genesis::Kit::Validator::Spec::cprintf(
+			"  #path{%s} -> %s", $entry, $value));
 	}
 
 	# add-secrets generates every non-provided secret.
+	_step($env, Genesis::Kit::Validator::Spec::cprintf(
+		"generating remaining secrets via #keyword{genesis add-secrets}"));
 	_run_cmd(
 		Genesis::Kit::Validator::Runner::Cmd::genesis_add_secrets_cmd(env => $env),
 		onfailure => "genesis add-secrets failed for ".$env->name,
@@ -651,6 +768,7 @@ sub _bootstrap_vault_cache_if_missing {
 
 	# Export everything under secret/<env-with-slashes>/<kit>/ and
 	# tokenize the leaves to `<!{meta.vault}/<sub>:<key>!>`.
+	_step($env, "exporting vault subtree to build cache");
 	my $vault_base = Genesis::Kit::Validator::Bootstrap::env_vault_base(
 		$env->name, $kit_name);
 	my $export_json = _run_cmd(
@@ -669,6 +787,8 @@ sub _bootstrap_vault_cache_if_missing {
 	);
 	# Write to spec/vault/<env>.yml via Genesis::to_yaml (which shells
 	# through spruce for consistent output).
+	_step($env, Genesis::Kit::Validator::Spec::cprintf(
+		"writing vault cache to #path{%s}", $cache_path));
 	my $body = Genesis::to_yaml($tokenized);
 	$fx->write('vault', $env->name, $body);
 }

@@ -1,6 +1,7 @@
 package Genesis::Kit::Validator::Spec;
 use v5.20;
 use warnings;
+use utf8;
 
 use Exporter ();
 use File::Temp ();
@@ -16,6 +17,7 @@ use constant MIN_GENESIS_VERSION => '3.2.0-rc.0';
 # One-shot sandbox state.
 my $INITIALIZED;
 our $SANDBOX_HOME;
+our $SHARED_VAULT;
 my $_sandbox_guard;
 
 # import - the spec.t entry point.  Every generalizable per-run setup
@@ -30,9 +32,129 @@ sub import {
 		require Genesis::Kit::Validator::Runner;
 		Genesis::Kit::Validator::Runner::_require_genesis();
 		_check_genesis_version();
+		_start_shared_vault();
+		_init_theme();
 	}
 	Exporter::export_to_level($class, 1, $class, @_);
 }
+
+# Theme palette: role -> Genesis::Term color letter.  Two variants
+# swap in based on the detected terminal background so every role
+# stays contrasty against whatever the operator's colour scheme is.
+# `label` / `path` / `ident` land on cyan in both themes because
+# dark cyan is legible on light AND dark backgrounds; roles that
+# rely on brightness (accent / value / keyword / number / muted)
+# flip case.
+our %THEME;
+my %_THEME_DARK = (
+	accent  => 'B',   # section rules / preamble title (avoid G/R -- test verdict colours)
+	label   => 'c',   # left-column field names
+	value   => 'W',   # right-column field values
+	keyword => 'Y',   # command names / verbs
+	ident   => 'C',   # env names, identifiers
+	path    => 'c',   # filesystem/vault paths
+	number  => 'M',   # counts, indexes
+	muted   => 'K',   # brackets, subtle chrome
+);
+my %_THEME_LIGHT = (
+	accent  => 'b',
+	label   => 'c',
+	value   => 'k',
+	keyword => 'y',
+	ident   => 'c',
+	path    => 'c',
+	number  => 'm',
+	muted   => 'k',
+);
+sub _init_theme {
+	require Genesis::Term;
+	my $tc = Genesis::Term::terminal_colors();
+	%THEME = $tc && !$tc->{is_dark} ? %_THEME_LIGHT : %_THEME_DARK;
+}
+
+# theme_color - fetch the csprintf letter (e.g. 'Y') registered for
+# a semantic role in the current theme.  Returns undef for unknown
+# roles; callers using cprintf get a diagnostic when that happens.
+sub theme_color { $THEME{$_[0]} }
+
+# cprintf - csprintf with theme-role tokens.  Pre-processes markers
+# of the form `#<role>{...}` (accent/label/value/keyword/ident/path/
+# number/muted) into the letter registered for the current theme,
+# then delegates to Genesis::Term::csprintf.  Regular one-letter
+# csprintf markers (`#Y{...}` etc.) pass through untouched.
+sub cprintf {
+	my ($fmt, @args) = @_;
+	# Delimit with `!` -- the default `{}` form counts braces on
+	# both sides and would trip over the literal `{` we insert
+	# into the replacement string.
+	$fmt =~ s!#(accent|label|value|keyword|ident|path|number|muted)\{!'#' . ($THEME{$1} // 'W') . '{'!ge;
+	require Genesis::Term;
+	return Genesis::Term::csprintf($fmt, @args);
+}
+
+# emit_preamble - one-shot summary of the runtime context (which
+# genesis, which libs, which focus filter, sandbox HOME, shared vault
+# URL).  Written to STDERR via warn so it interleaves with the same
+# stream as _step() progress lines and Test::More diag output.  Lets
+# the operator see immediately whether the run is picking up the
+# expected binary/lib and (crucially) whether KIT_VALIDATOR_FOCUS is
+# scoping the sweep.  Called from Kit::Validator::kit_dir once the
+# kit name can be resolved from $KIT_DIR/kit.yml.
+sub emit_preamble {
+	my ($kit_name) = @_;
+	require Genesis;
+	require Genesis::Term;
+	my $binary = $ENV{KIT_VALIDATOR_GENESIS} || 'genesis';
+	my $version = $Genesis::VERSION // '(development)';
+	my $genesis_lib = $ENV{GENESIS_LIB} // '(default)';
+	my $validator_lib = $ENV{KIT_VALIDATOR_LIB} // '(from @INC)';
+	my $focus = $ENV{KIT_VALIDATOR_FOCUS};
+	my $vault_url = eval { $SHARED_VAULT->url } // '(unknown)';
+	my $title_text = defined $kit_name && length $kit_name
+		? "Validating kit '$kit_name'"
+		: "Validating kit";
+
+	my $w = Genesis::Term::terminal_width();
+	my $line = '═' x $w;
+	my $row = sub {
+		my ($label, $value) = @_;
+		return cprintf("  #label{%-15s} : #value{%s}\n", $label, $value);
+	};
+
+	my $out = "\n\n"
+		. cprintf("#accent{%s}\n", $line)
+		. cprintf("  #accent{%s}\n", $title_text)
+		. cprintf("#accent{%s}\n", $line)
+		. $row->('genesis binary',  "$binary ($version)")
+		. $row->('genesis lib',     $genesis_lib)
+		. $row->('validator lib',   $validator_lib)
+		. $row->('sandbox HOME',    $SANDBOX_HOME)
+		. $row->('shared vault',    $vault_url)
+		. ((defined $focus && length $focus) ? $row->('focus filter', $focus) : '')
+		. cprintf("#accent{%s}\n", $line);
+	warn $out;
+}
+
+# shared_vault - accessor for the run-scoped vault created in
+# _start_shared_vault.  Returns undef if called before import().
+sub shared_vault { $SHARED_VAULT }
+
+
+# _start_shared_vault - one memory-backed vault for the whole spec.t
+# run.  Every env's Runner->_execute writes into its own
+# secret/<env-name>/<kit>/... subtree, so there's no cross-env
+# contention on a shared store.  Avoids per-env vault start/stop cost
+# and the safe(1) target/saferc restore dance between envs.
+sub _start_shared_vault {
+	require Service::Vault::Local;
+	$SHARED_VAULT = Service::Vault::Local->create('kv-shared-'.$$);
+}
+
+# Tear the shared vault down at interpreter exit.  Runs before the
+# sandbox HOME cleanup (File::Temp CLEANUP fires from the same END
+# phase in reverse-declaration order), so `safe` still has a live
+# .saferc to hit when shutdown reads its own target.
+END { eval { $SHARED_VAULT->shutdown } if $SHARED_VAULT }
 
 sub _check_genesis_version {
 	require Genesis;

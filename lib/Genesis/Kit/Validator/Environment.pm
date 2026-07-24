@@ -46,6 +46,14 @@ sub new {
 		cpi             => $opts{cpi} // '',
 		ops             => $ops,
 		focus           => $opts{focus} ? 1 : 0,
+		# `genesis check` forces its cpis option off when unset (see
+		# Genesis::Commands::Env), so the CPI availability check --
+		# and with it cpi_az_map / instance_group_azs -- never runs
+		# unless asked for.  Opt-in per env rather than on by
+		# default: enabling it globally would make every existing kit
+		# suite start resolving AZs against its cloud-config, a
+		# behaviour change those suites did not ask for.
+		check_cpis      => $opts{check_cpis} ? 1 : 0,
 		output_matchers => $matchers,
 	}, $class;
 }
@@ -59,6 +67,7 @@ sub exodus          { $_[0]{exodus} }
 sub cpi             { $_[0]{cpi} }
 sub ops             { $_[0]{ops} }
 sub focus           { $_[0]{focus} }
+sub check_cpis      { $_[0]{check_cpis} }
 sub output_matchers { $_[0]{output_matchers} }
 
 1;
@@ -105,11 +114,35 @@ into vault under C<secret/exodus/E<lt>nameE<gt>>.
 =item * C<focus> -- boolean; when true, only focused envs run (Ginkgo
 C<FIt> equivalent).
 
+=item * C<check_cpis> -- boolean; adds C<--cpis> to C<genesis check>.
+Off by default, matching Genesis: C<genesis check> forces its C<cpis>
+option to 0 when unset, so the CPI availability check does not run
+unless asked.  That check is the only route from C<genesis check> to
+C<Genesis::Env::cpi_az_map> and C<instance_group_azs>, so an env
+asserting on AZ or CPI resolution B<must> set this or it will pass
+without ever exercising the code it targets.
+
+Note the check is also skipped for create-env environments, so a kit
+declaring C<services: [director]> cannot reach it regardless of this
+flag.
+
 =item * C<output_matchers> -- hashref of C<genesis_{check,add_secrets,manifest}>
 keys to Regexp values.  When set, the corresponding subcommand's
 combined stdout+stderr must match the regex (and non-zero exit is
 tolerated).
 
+Setting C<genesis_check> also ends the pipeline once the check has been
+matched: an environment whose preflight fails never legitimately
+reaches manifest generation, so no golden manifest is produced for it.
+
 =back
+
+=head1 LIMITATIONS
+
+C<output_matchers> asserts on output, not on exit status -- a matcher
+fires whether the subcommand exited zero or non-zero.  An env whose
+command unexpectedly starts succeeding while still printing matching
+text would continue to pass.  Write matchers specific enough that only
+the failure path can produce them.
 
 =cut

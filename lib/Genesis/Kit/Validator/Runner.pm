@@ -360,12 +360,22 @@ sub _execute {
 		step_name => 'genesis check',
 	);
 
+	# A genesis_check matcher means the env asserts that preflight
+	# fails.  _run_genesis_step has already verified the message, so
+	# the env's assertion is complete -- and nothing downstream is
+	# meaningful, because an operator whose check fails never gets to
+	# generate a manifest.  Stop here rather than running `genesis
+	# manifest` and materialising a golden for an environment that
+	# cannot legitimately produce one.
+	if ($env->output_matchers->{genesis_check}) {
+		_step($env, "genesis check failed as expected; skipping remaining pipeline");
+		return;
+	}
+
 	# 11. genesis yamls: capture merge order, diff against golden.
 	# Runs as its own subtest so blueprint-order regressions surface
-	# separately from manifest-content regressions.  Skipped when the
-	# env expects genesis_check to fail (matcher set) -- a failing
-	# check means yamls generation isn't reachable in real usage.
-	unless ($env->output_matchers->{genesis_check}) {
+	# separately from manifest-content regressions.
+	{
 		_step($env, Genesis::Kit::Validator::Spec::cprintf(
 			"running #keyword{genesis yamls} (merge-order diff)"));
 		_run_yamls_diff_step(

@@ -66,6 +66,37 @@ subtest 'genesis_check_cmd: no cloud/runtime configs' => sub {
 	], 'no -c flags when neither cloud nor runtime configured';
 };
 
+subtest 'genesis_check_cmd: check_cpis adds --cpis' => sub {
+	my $env = env(cloud_config => 'aws', check_cpis => 1);
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
+		env         => $env,
+		fixture_dir => '/kits/bosh/spec',
+	);
+	# `genesis check` skips the CPI check unless asked: Commands/Env.pm
+	# forces the cpis option to 0 when unset.  Without --cpis the check
+	# never reaches _check_cpis -> cpi_az_map -> instance_group_azs, so
+	# any env asserting on AZ/CPI resolution would silently pass.
+	is_deeply $cmd, [
+		'genesis', 'check',
+		'--cwd', 'deployments/',
+		'--no-manifest',
+		'--no-stemcells',
+		'--cpis',
+		'-c', 'cloud=/kits/bosh/spec/cloud_configs/aws.yml',
+		$ENV_NAME,
+	], 'opting in emits --cpis before the -c flags';
+};
+
+subtest 'genesis_check_cmd: no --cpis unless opted in' => sub {
+	my $env = env(cloud_config => 'aws');
+	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(
+		env         => $env,
+		fixture_dir => '/kits/bosh/spec',
+	);
+	ok !(grep { $_ eq '--cpis' } @$cmd),
+		'default stays off so existing kit suites are unaffected';
+};
+
 subtest 'genesis_check_cmd: cloud config only' => sub {
 	my $env = env(cloud_config => 'aws');
 	my $cmd = Genesis::Kit::Validator::Runner::Cmd::genesis_check_cmd(

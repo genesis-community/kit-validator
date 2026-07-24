@@ -1,0 +1,36 @@
+---
+name: faulty
+version: 0.0.1
+
+authors:
+  - Kit Validator Test Fixture
+
+docs: https://github.com/genesis-community/genesis-kit-validator
+code: https://github.com/genesis-community/genesis-kit-validator
+
+genesis_version_min: 3.1.0
+
+description: |
+  Synthetic kit whose features deliberately reproduce known Genesis
+  failure modes, one feature per error path.  Exists so the validator's
+  expected-failure machinery (Environment output_matchers) has real
+  regression coverage: each spec env asserts that Genesis fails, and
+  that it fails with the message we expect.
+
+  Deliberately separate from tiny-kit.  tiny-kit's job is to demonstrate
+  that the happy path works end-to-end; injecting faults into it would
+  make a failure there ambiguous.  NOT a deployable kit.
+
+supports:
+  - test
+
+# Deliberately NOT a director kit.  Genesis skips the CPI availability
+# check for create-env environments, and that check is the only route
+# to Genesis::Env::instance_group_azs during `genesis check`.  Declaring
+# `services: [director]` here (as tiny-kit does) would make every env
+# create-env and render the gopatch-azs-marker scenario unreachable.
+
+# No credentials block: envs here carry output_matchers, so the Runner
+# skips vault-cache bootstrap and add-secrets never runs.  A declared
+# credential would leave an unresolvable `(( vault ))` reference that
+# fails the merge before the intended fault fires.

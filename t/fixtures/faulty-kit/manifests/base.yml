@@ -1,0 +1,23 @@
+---
+name: (( concat "faulty-" genesis.env ))
+
+# No `(( vault ))` references anywhere in this kit.  The Runner skips
+# vault-cache bootstrap for envs carrying output_matchers -- the bail
+# IS the assertion, so add-secrets never runs -- which means any secret
+# reference here would fail the merge before the intended fault fires,
+# and the env would pass its matcher for entirely the wrong reason.
+instance_groups:
+- name: hello
+  instances: 1
+  azs: [z1]
+  properties:
+    greeting: (( concat "Hello, " genesis.env "!" ))
+
+releases: []
+stemcells: []
+
+update:
+  canaries: 1
+  canary_watch_time: 30000
+  update_watch_time: 30000
+  max_in_flight: 1

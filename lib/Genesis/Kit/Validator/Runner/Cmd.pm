@@ -57,6 +57,9 @@ sub genesis_check_cmd {
 		'--cwd', 'deployments/',
 		'--no-manifest',
 		'--no-stemcells',
+		# genesis defaults the cpis option to off, so the CPI
+		# availability check is unreachable without this flag.
+		($env->check_cpis ? ('--cpis') : ()),
 		_config_flags($env, $o{fixture_dir}, $o{cpi_stub_path}),
 		$env->name,
 	];

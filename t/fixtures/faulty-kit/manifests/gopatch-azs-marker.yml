@@ -1,0 +1,18 @@
+---
+# The anti-pattern, verbatim.  Genesis merges kit files with
+# `spruce merge --multi-doc --go-patch`, and spruce applies a go-patch
+# document as-is -- it never evaluates operators sitting inside a
+# `value:` block.  So the `(( replace ))` below is not consumed: it
+# survives into the resolved manifest as a literal string in the
+# instance group's azs list, where Genesis::Env::instance_group_azs
+# refuses it.
+#
+# Note the `type: replace` at the top of the op is already doing the
+# replace.  The inner marker is redundant as well as inert -- that
+# redundancy is exactly what makes the pattern easy to write by
+# accident and hard to notice in review.
+- type: replace
+  path: /instance_groups/name=hello/azs
+  value:
+  - (( replace ))
+  - z2

@@ -1,0 +1,9 @@
+---
+kit:
+  name:     dev
+  version:  latest
+  iaas:     test
+  features:
+  - gopatch-azs-marker
+genesis:
+  env: gopatch-azs-marker

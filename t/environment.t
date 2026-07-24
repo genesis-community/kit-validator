@@ -83,4 +83,23 @@ subtest 'output_matchers values must be Regexp' => sub {
 		'non-regex value -> die';
 };
 
+subtest 'check_cpis defaults off' => sub {
+	my $env = Genesis::Kit::Validator::Environment->new(name => 'x');
+	ok !$env->check_cpis,
+		'absent check_cpis is false, so existing kits keep the current '.
+		'genesis check behaviour';
+};
+
+subtest 'check_cpis is stored as a boolean' => sub {
+	my $env = Genesis::Kit::Validator::Environment->new(
+		name => 'x', check_cpis => 'yes',
+	);
+	is $env->check_cpis, 1, 'truthy value normalizes to 1';
+
+	my $off = Genesis::Kit::Validator::Environment->new(
+		name => 'x', check_cpis => 0,
+	);
+	is $off->check_cpis, 0, 'explicit false stays 0';
+};
+
 done_testing;
